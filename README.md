@@ -1,5 +1,5 @@
 ### Embryo development simulation with data-driven model based on subcellular element method and optimal transport
-A study of early mammalian embryo development using a data-driven model based on subcellular element method and optimal transport.
+A study of early mammalian embryo development using a data-driven model based on subcellular element method and optimal transport. See an accompanying [rule-based model](https://github.com/yangyaw1/embryo-rule-based) for embryo development.
 
 The main Python script for simulation has the following dependencies: ``torch`` (1.3.1); ``numba`` (0.48.0 with cuda); ``scipy``; ``numpy``; ``pandas``; the package in the folder ``dot``. The plotting utilities for the embryo depends on ``mayavi`` and ``matplotlib``.
 
