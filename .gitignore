@@ -1,0 +1,6 @@
+venv/
+.idea/
+*.pyc
+*.pkl
+
+data_preprocessing/.ipynb_checkpoints/

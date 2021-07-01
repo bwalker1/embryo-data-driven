@@ -1,0 +1,9 @@
+torch
+matplotlib
+sklearn
+scipy
+numpy
+pandas
+umap-learn
+networkx
+POT

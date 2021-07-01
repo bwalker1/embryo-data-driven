@@ -15,6 +15,11 @@ import matplotlib as mpl
 
 from dot.dot import gaussian_diffusion, sinkhorn_knopp, sinkhorn_stabilized, sinkhorn_epsilon_scaling
 
+# be able to adaptively run on CPU or GPU
+try_gpu = True
+device = torch.device('cuda:0' if (try_gpu and torch.cuda.is_available()) else 'cpu')
+print("Using device ", device)
+
 class sem:
     def __init__(self, ne=100):
         self.ne = ne # number of elements
@@ -91,7 +96,7 @@ class sem:
         blocks_per_grid = 32
         nc = np.max(self.ecid)+1
         for i in range(nsteps):
-            # if i%1000==0: print(i)
+            # if i%10==0: print(i)
             cuda.synchronize()
             move_point[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid, self.d_etyp, nc, 1.5, 3.0, 0.01, cav)
             cuda.synchronize()
@@ -188,7 +193,7 @@ class sem:
         pts = np.array( pts, float )
         peaks = np.array( peaks, float )
         sigmas = np.array( sigmas, float )
-        pts_grad = self.dot_get_gradient(pts, gene, peaks=peaks, sigmas=sigmas)
+        pts_grad = self.dot_get_gradient(pts, gene, peaks=peaks, sigmas=sigmas, device=device)
         for icell in range(len(cids)):
             cid = cids[icell]
             ceid = self.ceid[cid]
@@ -315,8 +320,8 @@ def d_potential_cav(xcav, ycav, zcav, x, y, z, ctyp, R):
         y_change = (y-yR)*te_repulsion
         z_change = (z-zR)*te_repulsion
     # Inner cell
-    elif ctyp==0:
-        # Auxilliary point repulsion center for cavity
+    elif ctyp == 0:
+        # Auxiliary point repulsion center for cavity
         xc_rep = R*xcav; yc_rep = R*ycav; zc_rep = R*zcav
         rr = distance(x,y,z,xc_rep,yc_rep,zc_rep)
         mm = 1.0/rr
@@ -395,8 +400,8 @@ def ddsem_simulation(Seq32C, Seq64C, Seq128C, Spa128C, random_seed):
     sigmas_spa128c = 1.5 * np.ones(pts_spa128c.shape[0], float)
     Data_Nanog = np.concatenate((Nanog_spa128c.reshape(-1,1), sigmas_spa128c.reshape(-1,1)), axis=1)
     Data_Gata6 = np.concatenate((Gata6_spa128c.reshape(-1,1), sigmas_spa128c.reshape(-1,1)), axis=1)
-    embryo.dot_initialize(pts_spa128c, Data_Nanog, "Nanog")
-    embryo.dot_initialize(pts_spa128c, Data_Gata6, "Gata6")
+    embryo.dot_initialize(pts_spa128c, Data_Nanog, "Nanog", device=device)
+    embryo.dot_initialize(pts_spa128c, Data_Gata6, "Gata6", device=device)
     # polygon_plot_gene(pts_spa128c, Data_Nanog[:,0])
     # Read in the sequencing data
     infile = open(seq_datadir+"/devmappath_"+Seq64C+"-"+Seq128C+".pkl", "rb")
@@ -406,6 +411,7 @@ def ddsem_simulation(Seq32C, Seq64C, Seq128C, Spa128C, random_seed):
     # 1c-128c without data
     nc = 1
     while nc < 128:
+        print("nc: ", nc)
         for j in range(nc):
             embryo.cell_division(j,1)
         embryo.sem_simulation(nsteps=1000, cav=0)
@@ -430,7 +436,9 @@ def ddsem_simulation(Seq32C, Seq64C, Seq128C, Spa128C, random_seed):
 
     embryo.cfeat['Nanog'] = np.zeros(128)
     pts_traj = np.empty([nintervals+1, nicm_seq, 3], float)
+    print("Max intervals: ", nintervals)
     for i in range(nintervals+1):
+        print("Interval: ", i)
         cnt = 0
         for ic in range(128):
             if embryo.cfeat['cell_type'][ic] == 0:
@@ -454,7 +462,7 @@ def ddsem_simulation(Seq32C, Seq64C, Seq128C, Spa128C, random_seed):
 
 
 def main():
-    for i in range(50):
+    for i in range(1):
         print("Running with random seed ", str(i))
         ddsem_simulation(None, "Q_C64E1", "G_E4.5Em4", "020614_R3_C2", i)
 
