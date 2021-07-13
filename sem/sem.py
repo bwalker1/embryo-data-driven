@@ -87,7 +87,6 @@ class sem:
             cuda.synchronize()
             self.d_xe[:, :] = self.d_xe_F[:, :]
             cuda.synchronize()
-            #self.xe = move_point_2(self.xe, np.random.normal(0, 1, self.xe.shape), self.ecid, self.etyp, nc, 1.5, 3.0, 0.01)
         self.d_xe.copy_to_host(self.xe)
 
     def cell_division(self, cid, type = 1):
@@ -245,6 +244,8 @@ class sem:
                                 cmap=sns.color_palette("vlag", as_cmap=True))
             #a.set_aspect('equal')
             #plt.colorbar(a)
+            plt.gca().set_ylim([0, 10])
+            plt.gca().set_xlim([-25, 25])
             plt.gca().set_aspect('equal')
         else:
             raise NotImplementedError
@@ -321,7 +322,8 @@ def move_point_2(x, x_F, x_rand, ecid, etyp, nc, rm_intra, rm_inter, dt):
             if ecid[j] == ecid[i]:
                 dV = max(d_potential_LJ(r, rm_intra, 1.5) + 0.04 * r, -50.0)
             else:
-                dV = max(d_potential_LJ(r, rm_inter, 0.3), -10.0)
+                #dV = max(d_potential_LJ(r, rm_inter, 0.3), -10.0)
+                dV = max(d_potential_r2(r, 0.001), -10.0)
             x_F[i, 0] += -dt * dV * (x[i, 0] - x[j, 0])
             x_F[i, 1] += -dt * dV * (x[i, 1] - x[j, 1])
         x_F[i, 0] += dt * 0.5 * x_rand[i, 0]
@@ -339,6 +341,14 @@ def d_potential_LJ(r, rm, epsilon):
     rs = rm/r
     rs6 = math.pow(rs,6)
     d = epsilon*r2*(-rs6*rs6+rs6)
+    return d
+
+@cuda.jit(device=True)
+def d_potential_r2(r, epsilon):
+    if r == 0:
+        return -10
+    r2 = 1.0/(r*r)
+    d = -epsilon*r2
     return d
 
 
@@ -360,17 +370,17 @@ def d_boundary(x_F, i, dt):
     #     x_F[i, 1] -= dt*alpha*(x_F[i, 1] - tmp)
 
     # Periodic in x
-    if x_F[i, 0] >= xB:
-        x_F[i, 0] -= xB
-    if x_F[i, 0] < 0:
-        x_F[i, 0] += xB
+    if x_F[i, 0] >= 25:
+        x_F[i, 0] = x_F[i, 0] - 25
+    elif x_F[i, 0] < 0:
+        x_F[i, 0] = x_F[i, 0] + 25
 
     # Reflective in y
-    if x_F[i, 1] > yB:
-        x_F[i, 1] = yB
     tmp = 3 + 3 * math.sin(x_F[i, 0] * 2 * math.pi / xB)
     if x_F[i, 1] < tmp:
         x_F[i, 1] = tmp
+    elif x_F[i, 1] > yB:
+        x_F[i, 1] = yB
 
 
 @cuda.jit(device=True)
@@ -382,7 +392,7 @@ def distance_x_periodic(x1,y1,x2,y2):
 
 
 if __name__=="__main__":
-    np.random.seed(5)
+    #np.random.seed(5)
     s = sem(ne=208, d=2)
     s.initialize(geom='grid')
 
@@ -408,10 +418,10 @@ if __name__=="__main__":
         #s.cfeat["SPINK5"][i] = spink5[v]
 
         # put more stuff higher up
-        s.cfeat["SPINK5"][i] = (xc[i, 1]/10)**1.7
+        s.cfeat["SPINK5"][i] = (xc[i, 1]/10)**1.5
 
-    plt.figure(figsize=(15, 3))
-    s.simple_plot(gene_color=True, pause=True, periodic=True)
+    #plt.figure(figsize=(15, 3))
+    #s.simple_plot(gene_color=True, pause=True, periodic=True)
     plt.figure(figsize=(15, 3))
     for i in range(200):
         print(i)
