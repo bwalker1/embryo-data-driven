@@ -7,3 +7,5 @@ pandas
 umap-learn
 networkx
 POT
+pyqt5
+seaborn

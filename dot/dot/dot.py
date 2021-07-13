@@ -155,7 +155,7 @@ def sinkhorn_epsilon_scaling(a, b, M, reg,
     res = torch.sum(G * M)
     return res, G
 
-def gaussian_diffusion(source_pts, locations, peaks, sigmas, nus):
+def gaussian_diffusion(source_pts, locations, peaks, sigmas, nus, x_periodic=False):
 
     dtype = source_pts.dtype
     device = source_pts.device
@@ -166,9 +166,14 @@ def gaussian_diffusion(source_pts, locations, peaks, sigmas, nus):
     d = source_pts.size(1)
     x = source_pts.unsqueeze(1).expand(n, m, d)
     y = locations.unsqueeze(0).expand(n, m, d)
-    D = torch.pow(x - y, 2).sum(2)
+    Dx = torch.abs(x[:, :, 0] - y[:, :, 0])
+    Dx = torch.where(Dx > 12.5, 25 - Dx, Dx)
+    Dy = x[:, :, 1] - y[:, :, 1]
+    D = torch.pow(Dx, 2) + torch.pow(Dy, 2)
+    #D = torch.pow(x - y, 2)
+    #D = D.sum(2)
     D_over_sigma = D / (sigmas.view(-1,1) ** 2)
     D_over_sigma_pow = torch.pow(D_over_sigma, nus.view(-1,1))
-    P = torch.sum( peaks.view(-1,1) * torch.exp(-D_over_sigma_pow), 0 )
+    P = torch.sum( peaks.view(-1,1) * torch.exp(-D_over_sigma_pow) / (np.sqrt(2*np.pi) * sigmas.view(-1, 1)), 0 )
 
     return P

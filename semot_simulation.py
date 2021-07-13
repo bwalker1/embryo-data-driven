@@ -15,22 +15,28 @@ import matplotlib as mpl
 
 from dot.dot import gaussian_diffusion, sinkhorn_knopp, sinkhorn_stabilized, sinkhorn_epsilon_scaling
 
+# for testing/optimizing
+import cProfile
+
 # be able to adaptively run on CPU or GPU
 try_gpu = True
 device = torch.device('cuda:0' if (try_gpu and torch.cuda.is_available()) else 'cpu')
-print("Using device ", device)
+
 
 class sem:
-    def __init__(self, ne=100):
-        self.ne = ne # number of elements
-        self.xe = np.empty([self.ne,3], np.float32) # coordinates of elements
-        self.ecid = np.empty([self.ne], np.int32) # cell id of elements
-        self.etyp = np.empty([self.ne], np.int32) # cell type of elements
+    def __init__(self, ne=100, d=3):
+        self.d = d
+        self.ne = ne                                        # number of elements
+        self.xe = np.empty([self.ne, self.d], np.float32)   # coordinates of elements
+        self.ecid = np.empty([self.ne], np.int32)           # cell id of elements
+        self.etyp = np.empty([self.ne], np.int32)           # cell type of elements
 
     def initialize(self, geom='spherical', mindis=0.1, radius=10.0):
+        # TODO: add general initialization control
         # Initialize elements with a spherical geometry
         if geom == 'spherical':
-            tmp_xe = np.random.uniform(-radius, radius, size=(3*self.ne,3))
+            # check that d=3?
+            tmp_xe = np.random.uniform(-radius, radius, size=(3*self.ne, self.d))
             tmp_d = np.linalg.norm(tmp_xe, axis=1)
             tmp_ind = np.where(tmp_d <= radius)[0]
             xe_ind = np.random.choice(tmp_ind, size=self.ne, replace=False)
@@ -43,7 +49,7 @@ class sem:
         self.d_xe = cuda.to_device(self.xe)
         self.d_xe_F = cuda.to_device(self.xe)
         self.ceid = {}
-        self.ceid[0] = np.where(self.ecid==0)[0]
+        self.ceid[0] = np.where(self.ecid == 0)[0]
         self.cfeat = {}
         self.dot_P1 = {}
         self.dot_b = {}
@@ -53,11 +59,12 @@ class sem:
         """Divide cell of cid into two.
         """
         # Divide the a cell without adding elements
-        if type==1:
-            plain = np.random.rand(3)
-            eid = np.where(self.ecid==cid)[0]
+        if type == 1:
+            # split the cell along a random axis
+            vec = np.random.rand(3)
+            eid = np.where(self.ecid == cid)[0]
             nc = np.max(self.ecid)+1
-            dis = self.xe[eid,:].dot(plain.reshape(-1,1))
+            dis = self.xe[eid, :].dot(vec.reshape(-1, 1))
             mdis = np.median(dis)
             tmp_eid = np.where(dis <= mdis)[0]
             self.ecid[eid[tmp_eid]] = nc
@@ -68,30 +75,31 @@ class sem:
     def update_ceid(self):
         nc = np.max(self.ecid)+1
         for i in range(nc):
-            ceid = np.where(self.ecid==i)[0]
+            ceid = np.where(self.ecid == i)[0]
             self.ceid[i] = ceid
 
     def decide_ctyp(self, n_inner_cell):
         nc = np.max(self.ecid)+1
-        xc = np.empty([nc, 3], np.float32)
+        # Compute the centroid location of each cell
+        xc = np.empty([nc, self.d], np.float32)
         for i in range(nc):
-            ceid = np.where(self.ecid==i)[0]
-            xc[i,:] = np.mean(self.xe[ceid,:], axis=0)
+            ceid = np.where(self.ecid == i)[0]
+            xc[i, :] = np.mean(self.xe[ceid, :], axis=0)
             self.ceid[i] = ceid
         xd = np.linalg.norm(xc,axis=1)
         # print(xd, xc)
         sorted_cid = np.argsort(-xd)
+        # assign cells closer to the center to be inner cells
         for i in sorted_cid[:nc-n_inner_cell]:
             ceid = np.where(self.ecid==i)[0]
             self.etyp[ceid] = 1
         self.d_etyp = cuda.to_device(self.etyp)
         cuda.synchronize()
 
-
     def sem_simulation(self, nsteps=1000, cav=0):
         self.d_xe = cuda.to_device(self.xe)
         self.d_xe_F = cuda.to_device(self.xe)
-        self.d_xe_rand = cuda.to_device(np.random.normal(0,1,self.xe.shape))
+        self.d_xe_rand = cuda.to_device(np.random.normal(0, 1, self.xe.shape))
         threads_per_block = 128
         blocks_per_grid = 32
         nc = np.max(self.ecid)+1
@@ -100,17 +108,17 @@ class sem:
             cuda.synchronize()
             move_point[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid, self.d_etyp, nc, 1.5, 3.0, 0.01, cav)
             cuda.synchronize()
-            self.d_xe[:,:] = self.d_xe_F[:,:]
+            self.d_xe[:, :] = self.d_xe_F[:, :]
             cuda.synchronize()
         self.d_xe.copy_to_host(self.xe)
 
     def dot_initialize(self, pts, pts_data, data_id, dtype=torch.float32, device=torch.device("cuda")):
         # Set up the grid
         ngrid = 15
-        xl=yl=zl = -16.0; xr=yr=zr = 16.0
-        x = np.linspace(xl,xr,ngrid)
-        y = np.linspace(yl,yr,ngrid)
-        z = np.linspace(zl,zr,ngrid)
+        xl = yl = zl = -16.0; xr = yr = zr = 16.0
+        x = np.linspace(xl, xr, ngrid)
+        y = np.linspace(yl, yr, ngrid)
+        z = np.linspace(zl, zr, ngrid)
         xv, yv, zv = np.meshgrid(x, y, z)
         grids_np = np.concatenate((xv.reshape(-1,1), yv.reshape(-1,1),
             zv.reshape(-1,1)), axis=1)
@@ -137,7 +145,7 @@ class sem:
         nc = np.max(self.ecid) + 1
         xc = np.empty([nc, 3], np.float32)
         for i in range(nc):
-            xc[i,:] = np.mean(self.xe[self.ceid[i],:], axis=0)
+            xc[i,:] = np.mean(self.xe[self.ceid[i], :], axis=0)
         return xc
 
     def dot_get_gradient(self, pts_0_np, data_id, peaks=None, sigmas=None, dtype=torch.float32, device=torch.device("cuda")):
@@ -205,6 +213,7 @@ class sem:
         ax = fig.add_subplot(111, projection='3d')
         ax.scatter(self.xe[:,0], self.xe[:,1], self.xe[:,2], c=self.etyp)
         plt.show()
+
     def polygon_plot(self):
         nc = np.max(self.ecid)+1
         ns = 50
@@ -231,6 +240,7 @@ class sem:
             elif ctyp==2:
                 mlab.pipeline.iso_surface(src, contours=[3.0, ], opacity=1.0, color=(1.0,0.0,0.0))
         mlab.show()
+
     def polygon_plot_gene(self, gene):
         nc = np.max(self.ecid)+1
         ns = 50
@@ -356,9 +366,11 @@ def d_potential_cav(xcav, ycav, zcav, x, y, z, ctyp, R):
             + (z-zc_rep_4)*mm4
     return x_change, y_change, z_change
 
+
 @cuda.jit(device=True)
 def distance(x1,y1,z1,x2,y2,z2):
     return math.sqrt((x1-x2)**2+(y1-y2)**2+(z1-z2)**2)
+
 
 def polygon_plot_gene(pts, data):
     nc = pts.shape[0]
@@ -382,6 +394,7 @@ def polygon_plot_gene(pts, data):
         mlab.pipeline.iso_surface(src, contours=[iso, ], opacity=1.0, color=color[:3])
     mlab.show()
 
+
 def ddsem_simulation(Seq32C, Seq64C, Seq128C, Spa128C, random_seed):
     np.random.seed(random_seed)
     spa_datadir = "./input_data"
@@ -398,15 +411,15 @@ def ddsem_simulation(Seq32C, Seq64C, Seq128C, Spa128C, random_seed):
     Nanog_spa128c = Nanog_spa128c/np.quantile(Nanog_spa128c, 0.9); Nanog_spa128c[np.where(Nanog_spa128c>1)] = 1
     Gata6_spa128c = Gata6_spa128c/np.quantile(Gata6_spa128c, 0.9); Gata6_spa128c[np.where(Gata6_spa128c>1)] = 1
     sigmas_spa128c = 1.5 * np.ones(pts_spa128c.shape[0], float)
-    Data_Nanog = np.concatenate((Nanog_spa128c.reshape(-1,1), sigmas_spa128c.reshape(-1,1)), axis=1)
-    Data_Gata6 = np.concatenate((Gata6_spa128c.reshape(-1,1), sigmas_spa128c.reshape(-1,1)), axis=1)
+    Data_Nanog = np.concatenate((Nanog_spa128c.reshape(-1, 1), sigmas_spa128c.reshape(-1, 1)), axis=1)
+    Data_Gata6 = np.concatenate((Gata6_spa128c.reshape(-1, 1), sigmas_spa128c.reshape(-1, 1)), axis=1)
     embryo.dot_initialize(pts_spa128c, Data_Nanog, "Nanog", device=device)
     embryo.dot_initialize(pts_spa128c, Data_Gata6, "Gata6", device=device)
     # polygon_plot_gene(pts_spa128c, Data_Nanog[:,0])
     # Read in the sequencing data
     infile = open(seq_datadir+"/devmappath_"+Seq64C+"-"+Seq128C+".pkl", "rb")
     seq_path = pickle.load(infile)
-    common_genes = list( np.loadtxt(seq_datadir+"/common_genes.txt", dtype=str) )
+    common_genes = list(np.loadtxt(seq_datadir+"/common_genes.txt", dtype=str))
     # Simulation
     # 1c-128c without data
     nc = 1
@@ -426,7 +439,7 @@ def ddsem_simulation(Seq32C, Seq64C, Seq128C, Spa128C, random_seed):
     ind = np.arange(nicm_seq)
     ind = np.random.permutation(ind)
     seq_Nanog = np.empty(nicm_seq)
-    nintervals = 10
+    nintervals = -1
     x = np.arange(nintervals+1)/float(nintervals)
     seq_Nanog = np.empty([nicm_seq, len(x)], float)
     for i in range(nicm_seq):
@@ -466,5 +479,7 @@ def main():
         print("Running with random seed ", str(i))
         ddsem_simulation(None, "Q_C64E1", "G_E4.5Em4", "020614_R3_C2", i)
 
+
+
 if __name__ == "__main__":
-    main()
+    cProfile.run('main()')
