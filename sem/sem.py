@@ -83,7 +83,7 @@ class sem:
             #print(i)
             self.d_xe_rand = cuda.to_device(np.random.normal(0, 1, self.xe.shape))
             cuda.synchronize()
-            move_point_2[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid,self.d_etyp, nc, 0.5, 1.35, dt)
+            move_point_2[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid,self.d_etyp, nc, 0.5, 1.2, dt)
             cuda.synchronize()
             self.d_xe[:, :] = self.d_xe_F[:, :]
             cuda.synchronize()
@@ -306,6 +306,20 @@ class sem:
         self.d_ecid = cuda.to_device(self.ecid)
         self.update_ceid()
 
+    def load_from_data(self, grid, expr, gene_name):
+        """
+        test function to set elements equal to reference ST data
+        :return:
+        """
+        if not self.xe.shape == grid.shape:
+            raise ValueError
+
+        self.xe = grid
+        self.d_xe = cuda.to_device(self.xe)
+        self.d_xe_F = cuda.to_device(self.xe)
+
+        self.cfeat[gene_name] = expr
+
 
 @cuda.jit
 def move_point_2(x, x_F, x_rand, ecid, etyp, nc, rm_intra, rm_inter, dt):
@@ -322,13 +336,29 @@ def move_point_2(x, x_F, x_rand, ecid, etyp, nc, rm_intra, rm_inter, dt):
             if ecid[j] == ecid[i]:
                 dV = max(d_potential_LJ(r, rm_intra, 1.5) + 0.04 * r, -50.0)
             else:
-                #dV = max(d_potential_LJ(r, rm_inter, 0.3), -10.0)
-                dV = max(d_potential_r2(r, 0.001), -10.0)
-            x_F[i, 0] += -dt * dV * (x[i, 0] - x[j, 0])
+                dV = max(d_potential_LJ(r, rm_inter, 0.3), -10.0)
+                #dV = max(d_potential_r2(r, 0.001), -10.0)
+            xdist = (x[i, 0] - x[j, 0])
+            if xdist >= 12.5:
+                xdist = xdist - 25
+            elif xdist <= -12.5:
+                xdist = xdist + 25
+            x_F[i, 0] += -dt * dV * xdist
             x_F[i, 1] += -dt * dV * (x[i, 1] - x[j, 1])
         x_F[i, 0] += dt * 0.5 * x_rand[i, 0]
         x_F[i, 1] += dt * 0.5 * x_rand[i, 1]
-        d_boundary(x_F, i, dt)
+
+        if x_F[i, 0] >= 25:
+            x_F[i, 0] -= 25
+        elif x_F[i, 0] < 0:
+            x_F[i, 0] += 25
+
+        # Reflective in y
+        tmp = 3 + 3 * math.sin(x_F[i, 0] * 2 * math.pi / 25)
+        if x_F[i, 1] < tmp:
+            x_F[i, 1] = tmp
+        elif x_F[i, 1] > 10:
+            x_F[i, 1] = 10
 
     #return x_F
 
@@ -407,26 +437,29 @@ if __name__=="__main__":
     data_spink5 = np.concatenate((spink5.reshape(-1, 1), sigmas.reshape(-1, 1)), axis=1)
     s.dot_initialize(grid, data_spink5, "SPINK5", grid, device=device)
 
-    # add random gene information
-    npt = len(spink5)
-    nc = np.max(s.ecid)+1
-    s.cfeat["SPINK5"] = np.zeros(nc, dtype=np.float64)
-    xc = s.get_cell_center()
-    for i in range(nc):
-        # pick a random point from the spatial data and assign it to cell i
-        #v = np.random.randint(0, npt)
-        #s.cfeat["SPINK5"][i] = spink5[v]
+    # set initial SEM to match the reference data exactly
+    s.load_from_data(grid, spink5, "SPINK5")
 
-        # put more stuff higher up
-        s.cfeat["SPINK5"][i] = (xc[i, 1]/10)**1.5
+    # add random gene information
+    # npt = len(spink5)
+    # nc = np.max(s.ecid)+1
+    # s.cfeat["SPINK5"] = np.zeros(nc, dtype=np.float64)
+    # xc = s.get_cell_center()
+    # for i in range(nc):
+    #     # pick a random point from the spatial data and assign it to cell i
+    #     #v = np.random.randint(0, npt)
+    #     #s.cfeat["SPINK5"][i] = spink5[v]
+    #
+    #     # put more stuff higher up
+    #     s.cfeat["SPINK5"][i] = (xc[i, 1]/10)**1.5
 
     #plt.figure(figsize=(15, 3))
     #s.simple_plot(gene_color=True, pause=True, periodic=True)
     plt.figure(figsize=(15, 3))
     for i in range(200):
         print(i)
-        for ii in range(10):
-            #s.dot_simulation("SPINK5")
+        for ii in range(20):
+            s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=0.002)
         s.simple_plot(gene_color=True, pause=True, periodic=True)
     s.simple_plot(gene_color=True, periodic=False)
