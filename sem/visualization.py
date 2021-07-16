@@ -83,6 +83,15 @@ def voronoi_finite_polygons_2d(vor, radius=None):
     new_regions = []
     new_vertices = vor.vertices.tolist()
 
+    def isvalid(vertex):
+        x = new_vertices[vertex][0]
+        y = new_vertices[vertex][1]
+        ymin = 2.5 + 3*np.sin(2*np.pi*x/26)
+        if y > 10.5 or y < ymin:
+            return False
+        else:
+            return True
+
     center = vor.points.mean(axis=0)
     if radius is None:
         radius = vor.points.ptp().max()*2
@@ -102,15 +111,34 @@ def voronoi_finite_polygons_2d(vor, radius=None):
         #    new_regions.append(vertices)
         #    continue
 
-        # first check for finite ridges that go outside the boundaries
-        for p2, v1, v2 in ridges:
-            #v1_val = isvalid(v1)
-            #v2_val = isvalid(v2)
-            pass
 
         # reconstruct a non-finite region
         ridges = all_ridges[p1]
         new_region = [v for v in vertices if v >= 0]
+
+        # first check for finite ridges that go outside the boundaries
+        for p2, v1, v2 in ridges:
+            v1_val = isvalid(v1)
+            v2_val = isvalid(v2)
+            if v2_val:
+                v1, v2 = v2, v1
+                v1_val, v2_val = v2_val, v1_val
+            if v1_val and not v2_val:
+                # v1 inside domain but not v2 - move v2 closer
+                v1x = new_vertices[v1][0]
+                v1y = new_vertices[v1][1]
+                v2x = new_vertices[v2][0]
+                v2y = new_vertices[v2][1]
+                # TODO: fix this to actually account for the x coordinate at intersection
+                ymin = 2.5 + 3*np.sin(2*np.pi*v2x/26)
+                if v2y > 10.5:
+                    scale_over = (v2y - v1y) / (10.5 - v1y)
+                    asdf=1
+                elif v2y < ymin:
+                    scale_over = (v2y - v1y) / (ymin - v1y)
+                    asdf = 1
+
+
 
         for p2, v1, v2 in ridges:
             if v2 < 0:

@@ -129,6 +129,7 @@ class Model:
         self.update_ceid()
 
         # TODO: process cell division (birth)
+        
 
         self.update_vact()
 
@@ -306,14 +307,15 @@ if __name__=="__main__":
     s.load_from_data(grid, spink5, "SPINK5")
 
     plt.figure(figsize=(15, 3))
-    voronoi_plot(s, pause=True)
+    simple_plot(s, gene_color=True, pause=True, periodic=True)
+    #voronoi_plot(s, pause=True)
     dt = 0.002
     for i in range(200):
         print("Iteration %d\tNumber of active cells: %d"%(i, len(s.vact)))
         for ii in range(20):
             s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=dt)
-            #s.cell_birth_death(dt=100*dt)
-        #simple_plot(s, gene_color=True, pause=True, periodic=True)
-        voronoi_plot(s, pause=True)
+            s.cell_birth_death(dt=100*dt)
+        simple_plot(s, gene_color=True, pause=True, periodic=True)
+        #voronoi_plot(s, pause=True)
     #simple_plot(s, gene_color=True, periodic=False)
