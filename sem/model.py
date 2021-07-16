@@ -38,12 +38,12 @@ class Model:
         if self.d != 2:
             raise ValueError
         self.xe = np.empty(shape=(self.ne, self.d))
-        self.xwidth = 25
+        self.xwidth = 26
         self.xe[:, 0] = np.random.uniform(0, self.xwidth, size=self.ne)
         # initialize y coordinate based on x coordinate
         for i in range(self.ne):
             xv = self.xe[:, 0]
-            ymin = 3 + 3*np.sin(2*np.pi*xv/25)
+            ymin = 3 + 3*np.sin(2*np.pi*xv/26)
             self.xe[:, 1] = np.random.uniform(ymin, 10)
         self.ecid[:] = np.array(list(range(self.ne)))
         self.etyp[:] = 0
@@ -72,7 +72,7 @@ class Model:
             #print(i)
             self.d_xe_rand = cuda.to_device(np.random.normal(0, 1, self.xe.shape))
             cuda.synchronize()
-            move_point_2[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid, self.d_vact, 0.5, 1.2, dt)
+            move_point_2[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid, self.d_vact, 0.5, 1.25, dt)
             cuda.synchronize()
             self.d_xe[:, :] = self.d_xe_F[:, :]
             cuda.synchronize()
@@ -182,7 +182,7 @@ class Model:
 
         grids = torch.tensor(grids_np, dtype=dtype, device=device)
         M = torch.tensor(M_np, dtype=dtype, device=device)
-        P1 = gaussian_diffusion(pts_1, grids, peaks_1, sigmas_1, nus_1, x_periodic=25)
+        P1 = gaussian_diffusion(pts_1, grids, peaks_1, sigmas_1, nus_1, x_periodic=26)
         self.dot_P1[data_id] = P1
         self.dot_b[data_id] = P1 / torch.sum(P1)
         self.dot_M = M
@@ -284,52 +284,11 @@ class Model:
         self.update_vact()
 
 
-@cuda.jit
-def move_point_2(x, x_F, x_rand, ecid, vact, rm_intra, rm_inter, dt):
-    start = cuda.grid(1)
-    stride = cuda.gridsize(1)
-    ne = vact.shape[0]
-    # Iterate over just activate elements
-    for iv in range(start, ne, stride):
-        # Actual index of current element in array
-        i = vact[iv]
-        for jv in range(ne):
-            if jv == iv:
-                continue
-            j = vact[jv]
-            r = distance_x_periodic(x[i, 0], x[i, 1], x[j, 0], x[j, 1])
-            if ecid[j] == ecid[i]:
-                dV = max(d_potential_LJ(r, rm_intra, 1.5) + 0.04 * r, -50.0)
-            else:
-                dV = max(d_potential_LJ(r, rm_inter, 0.3), -10.0)
-            xdist = (x[i, 0] - x[j, 0])
-            if xdist >= 12.5:
-                xdist = xdist - 25
-            elif xdist <= -12.5:
-                xdist = xdist + 25
-            x_F[i, 0] += -dt * dV * xdist
-            x_F[i, 1] += -dt * dV * (x[i, 1] - x[j, 1])
-        x_F[i, 0] += dt * 0.5 * x_rand[i, 0]
-        x_F[i, 1] += dt * 0.5 * x_rand[i, 1]
-
-        if x_F[i, 0] >= 25:
-            x_F[i, 0] -= 25
-        elif x_F[i, 0] < 0:
-            x_F[i, 0] += 25
-
-        # Reflective in y
-        tmp = 3 + 3 * math.sin(x_F[i, 0] * 2 * math.pi / 25)
-        if x_F[i, 1] < tmp:
-            x_F[i, 1] = tmp
-        elif x_F[i, 1] > 10:
-            x_F[i, 1] = 10
-
-
 
 
 
 if __name__=="__main__":
-    #np.random.seed(5)
+    np.random.seed(5)
     s = Model(ne=256, d=2)
 
     # load spatial data
@@ -347,13 +306,14 @@ if __name__=="__main__":
     s.load_from_data(grid, spink5, "SPINK5")
 
     plt.figure(figsize=(15, 3))
-
+    #voronoi_plot(s, pause=True)
     dt = 0.002
     for i in range(200):
         print("Iteration %d\tNumber of active cells: %d"%(i, len(s.vact)))
         for ii in range(20):
             s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=dt)
-            s.cell_birth_death(dt=100*dt)
+            #s.cell_birth_death(dt=100*dt)
         simple_plot(s, gene_color=True, pause=True, periodic=True)
-    simple_plot(s, gene_color=True, periodic=False)
+        #voronoi_plot(s, pause=True)
+    #simple_plot(s, gene_color=True, periodic=False)
