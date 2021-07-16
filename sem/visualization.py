@@ -97,10 +97,16 @@ def voronoi_finite_polygons_2d(vor, radius=None):
     for p1, region in enumerate(vor.point_region):
         vertices = vor.regions[region]
 
-        if all(v >= 0 for v in vertices):
-            # finite region
-            new_regions.append(vertices)
-            continue
+        #if all(v >= 0 for v in vertices):
+        #    # finite region
+        #    new_regions.append(vertices)
+        #    continue
+
+        # first check for finite ridges that go outside the boundaries
+        for p2, v1, v2 in ridges:
+            #v1_val = isvalid(v1)
+            #v2_val = isvalid(v2)
+            pass
 
         # reconstruct a non-finite region
         ridges = all_ridges[p1]
@@ -121,7 +127,17 @@ def voronoi_finite_polygons_2d(vor, radius=None):
 
             midpoint = vor.points[[p1, p2]].mean(axis=0)
             direction = np.sign(np.dot(midpoint - center, n)) * n
-            far_point = vor.vertices[v2] + direction * radius
+
+            # check for intersection with y boundary
+            dist = radius
+            # if we're going up, boundary is y=10.5
+            if direction[1] > 0:
+                dist = (10.5 - vor.vertices[v2, 1])/direction[1]
+            # if down, it's the sin wave (linearize for simplicity)
+            elif direction[1] < 0:
+                dist = (0 - vor.vertices[v2, 1])/direction[1]
+
+            far_point = vor.vertices[v2] + direction * dist
 
             new_region.append(len(new_vertices))
             new_vertices.append(far_point.tolist())
@@ -145,14 +161,21 @@ def voronoi_plot(s, pause=False):
     pts2 = np.stack([xv-26, yv], axis=1)
     pts = np.concatenate([pts1, pts2])
 
-    vor = Voronoi(pts1)
+    vor = Voronoi(pts)
     regions, vertices = voronoi_finite_polygons_2d(vor)
 
     # post-process to extract 1 full period and draw boundary
 
     plt.clf()
     ax = plt.gca()
-    voronoi_plot_2d(vor, ax=ax)
+    #voronoi_plot_2d(vor, ax=ax)
+
+    for region in regions:
+        polygon = vertices[region]
+        plt.fill(*zip(*polygon), alpha=0.4)
+    plt.gca().set_ylim([-1, 11])
+    plt.gca().set_xlim([-13, 13])
+    plt.gca().set_aspect('equal')
     if pause:
         plt.pause(0.01)
     else:
