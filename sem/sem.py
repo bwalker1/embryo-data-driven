@@ -85,7 +85,7 @@ class sem:
             #print(i)
             self.d_xe_rand = cuda.to_device(np.random.normal(0, 1, self.xe.shape))
             cuda.synchronize()
-            move_point_2[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid,self.d_etyp, nc, 0.5, 1.2, dt)
+            move_point_2[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid, self.d_vact, 0.5, 1.2, dt)
             cuda.synchronize()
             self.d_xe[:, :] = self.d_xe_F[:, :]
             cuda.synchronize()
@@ -109,9 +109,9 @@ class sem:
         self.update_ceid()
         cuda.synchronize()
 
-    def cell_death(self, dt):
+    def cell_birth_death(self, dt):
         """
-        Simulate cell death process for time dt, causing death of cells randomly. Currently as
+        Simulate cell birth and death process for time dt, causing death of cells randomly. Currently as
         :return:
         """
 
@@ -136,7 +136,12 @@ class sem:
             # TODO: apply the cell death
             pass
 
+        self.update_vact()
 
+    def update_vact(self):
+        self.vact = np.nonzero(self.eact)[0].astype(np.int32)
+        self.d_eact = cuda.to_device(self.eact)
+        self.d_vact = cuda.to_device(self.vact)
 
 
     def split_cell_elements(self):
@@ -267,12 +272,14 @@ class sem:
             #ax.scatter(self.xe[:,0], self.xe[:,1], self.xe[:,2], c=self.etyp)
         elif self.d == 2:
             if gene_color:
-                cc = self.cfeat['SPINK5'][self.ecid]
+                cc = self.cfeat['SPINK5'][self.ecid][self.eact]
             else:
-                cc = self.ecid
-            a = plt.scatter(self.xe[:, 0], self.xe[:, 1], c=cc, vmin=0, vmax=1, cmap=sns.color_palette("vlag", as_cmap=True))
+                cc = self.ecid[self.eact]
+            xv = self.xe[self.eact, 0]
+            yv = self.xe[self.eact, 1]
+            a = plt.scatter(xv, yv, c=cc, vmin=0, vmax=1, cmap=sns.color_palette("vlag", as_cmap=True))
             if periodic:
-                a = plt.scatter(self.xe[:, 0]-25, self.xe[:, 1], c=cc, vmin=0, vmax=1,
+                a = plt.scatter(xv-25, yv, c=cc, vmin=0, vmax=1,
                                 cmap=sns.color_palette("vlag", as_cmap=True))
             #a.set_aspect('equal')
             #plt.colorbar(a)
@@ -357,19 +364,23 @@ class sem:
 
         # Mark the remaining elements (not covered by initial data) as inactive, and rest as active
         self.eact[:ngp] = True
-        self.eact[(ngp+1):] = False
-        self.d_eact = cuda.to_device(self.eact)
+        self.eact[ngp:] = False
+        self.update_vact()
 
 
 @cuda.jit
-def move_point_2(x, x_F, x_rand, ecid, etyp, nc, rm_intra, rm_inter, dt):
+def move_point_2(x, x_F, x_rand, ecid, vact, rm_intra, rm_inter, dt):
     start = cuda.grid(1)
     stride = cuda.gridsize(1)
-    ne = x.shape[0]
-    for i in range(start, ne, stride):
-        for j in range(ne):
-            if j == i:
+    ne = vact.shape[0]
+    # Iterate over just activate elements
+    for iv in range(start, ne, stride):
+        # Actual index of current element in array
+        i = vact[iv]
+        for jv in range(ne):
+            if jv == iv:
                 continue
+            j = vact[jv]
             r = distance_x_periodic(x[i, 0], x[i, 1], x[j, 0], x[j, 1])
             if ecid[j] == ecid[i]:
                 dV = max(d_potential_LJ(r, rm_intra, 1.5) + 0.04 * r, -50.0)
@@ -447,7 +458,7 @@ def distance_x_periodic(x1,y1,x2,y2):
 
 if __name__=="__main__":
     #np.random.seed(5)
-    s = sem(ne=208, d=2)
+    s = sem(ne=256, d=2)
     s.initialize(geom='grid')
 
     # load spatial data
