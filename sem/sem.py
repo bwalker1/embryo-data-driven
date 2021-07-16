@@ -32,6 +32,7 @@ class sem:
         self.xe = np.empty([self.ne, self.d], np.float32)  # coordinates of elements
         self.ecid = np.empty([self.ne], np.int32)  # cell id of elements
         self.etyp = np.empty([self.ne], np.int32)  # cell type of elements
+        self.eact = np.ones([self.ne], np.bool8)  # whether or not each element is currently active
 
 
     def initialize(self, geom='spherical', mindis=0.1, radius=10.0):
@@ -63,6 +64,7 @@ class sem:
         self.d_etyp = cuda.to_device(self.etyp)
         self.d_xe = cuda.to_device(self.xe)
         self.d_xe_F = cuda.to_device(self.xe)
+        self.d_eact = cuda.to_device(self.eact)
         self.ceid = {}
         self.update_ceid()
         self.cfeat = {}
@@ -106,6 +108,36 @@ class sem:
         self.d_ecid = cuda.to_device(self.ecid)
         self.update_ceid()
         cuda.synchronize()
+
+    def cell_death(self, dt):
+        """
+        Simulate cell death process for time dt, causing death of cells randomly. Currently as
+        :return:
+        """
+
+        def death_prob(y, dt):
+            """
+            Function determining rate of cell death for a cell at height y
+            :param y: vertical coordinate of cell
+            :param dt: timestep of simulation
+            :return: probability of cell death in current timestep
+            """
+            # TODO: proper exponential distribution or is that too slow?
+            # TODO: determine appropriate death timescale
+            # mean lifetime of cell
+            alpha = 10
+            # TODO: determine dependence on height (or make it on cell cycle?)
+            scale = (y/10)**2
+            return scale*dt/alpha
+
+        xc = self.get_cell_center()
+        xr = np.random.rand(len(xc))
+        for i in range(len(xc)):
+            # TODO: apply the cell death
+            pass
+
+
+
 
     def split_cell_elements(self):
         """
@@ -311,19 +343,26 @@ class sem:
         test function to set elements equal to reference ST data
         :return:
         """
-        if not self.xe.shape == grid.shape:
+        if not self.xe.shape[0] >= grid.shape[0]:
             raise ValueError
 
-        self.xe = grid
+        ngp = grid.shape[0]
+
+        self.xe[:ngp, :] = grid
         self.d_xe = cuda.to_device(self.xe)
         self.d_xe_F = cuda.to_device(self.xe)
 
-        self.cfeat[gene_name] = expr
+        self.cfeat[gene_name] = np.empty(shape=self.xe.shape[0])
+        self.cfeat[gene_name][:ngp] = expr
+
+        # Mark the remaining elements (not covered by initial data) as inactive, and rest as active
+        self.eact[:ngp] = True
+        self.eact[(ngp+1):] = False
+        self.d_eact = cuda.to_device(self.eact)
 
 
 @cuda.jit
 def move_point_2(x, x_F, x_rand, ecid, etyp, nc, rm_intra, rm_inter, dt):
-    #x_F = x
     start = cuda.grid(1)
     stride = cuda.gridsize(1)
     ne = x.shape[0]
@@ -331,7 +370,6 @@ def move_point_2(x, x_F, x_rand, ecid, etyp, nc, rm_intra, rm_inter, dt):
         for j in range(ne):
             if j == i:
                 continue
-            #r = math.sqrt((x[i, 0] - x[j, 0]) ** 2 + (x[i, 1] - x[j, 1]) ** 2)
             r = distance_x_periodic(x[i, 0], x[i, 1], x[j, 0], x[j, 1])
             if ecid[j] == ecid[i]:
                 dV = max(d_potential_LJ(r, rm_intra, 1.5) + 0.04 * r, -50.0)
@@ -360,8 +398,6 @@ def move_point_2(x, x_F, x_rand, ecid, etyp, nc, rm_intra, rm_inter, dt):
         elif x_F[i, 1] > 10:
             x_F[i, 1] = 10
 
-    #return x_F
-
 
 @cuda.jit(device=True)
 def d_potential_LJ(r, rm, epsilon):
@@ -386,18 +422,6 @@ def d_potential_r2(r, epsilon):
 def d_boundary(x_F, i, dt):
     xB = 25
     yB = 10
-    alpha = 25
-    # box on three sides
-    # if x_F[i, 0] > xB:
-    #     x_F[i, 0] -= dt*alpha*(x_F[i, 0] - xB)
-    # if x_F[i, 0] < 0:
-    #     x_F[i, 0] -= dt*alpha*x_F[i, 0]
-    # if x_F[i, 1] > yB:
-    #     x_F[i, 1] -= dt*alpha*(x_F[i, 1] - yB)
-    #
-    # tmp = 3 + 3*math.sin(x_F[i, 0]*2*math.pi/xB)
-    # if x_F[i, 1] < tmp:
-    #     x_F[i, 1] -= dt*alpha*(x_F[i, 1] - tmp)
 
     # Periodic in x
     if x_F[i, 0] >= 25:
