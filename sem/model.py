@@ -347,6 +347,7 @@ class Model:
 
 if __name__=="__main__":
     np.random.seed(5)
+    dt = 0.002
     s = Model(ne=256, d=2)
 
     # load spatial data
@@ -364,9 +365,11 @@ if __name__=="__main__":
     s.load_from_data(grid, spink5, "SPINK5")
 
     plt.figure(figsize=(15, 3))
-    simple_plot(s, gene_color=True, pause=True, periodic=True)
-    #voronoi_plot(s, pause=True)
-    dt = 0.002
+    #simple_plot(s, gene_color=True, pause=True, periodic=True)
+    s.sem_simulation(nsteps=100, dt=dt)
+    voronoi_plot(s, pause=False)
+    exit(0)
+
     for i in range(200):
         print("Iteration %d\tNumber of active cells: %d"%(i, len(s.vact)))
         for ii in range(20):

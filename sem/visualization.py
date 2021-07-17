@@ -87,7 +87,7 @@ def voronoi_finite_polygons_2d(vor, radius=None):
         x = new_vertices[vertex][0]
         y = new_vertices[vertex][1]
         ymin = 2.5 + 3*np.sin(2*np.pi*x/26)
-        if y > 10.5 or y < ymin:
+        if y < ymin:
             return False
         else:
             return True
@@ -106,40 +106,19 @@ def voronoi_finite_polygons_2d(vor, radius=None):
     for p1, region in enumerate(vor.point_region):
         vertices = vor.regions[region]
 
-        #if all(v >= 0 for v in vertices):
-        #    # finite region
-        #    new_regions.append(vertices)
-        #    continue
-
-
         # reconstruct a non-finite region
         ridges = all_ridges[p1]
         new_region = [v for v in vertices if v >= 0]
 
-        # first check for finite ridges that go outside the boundaries
-        for p2, v1, v2 in ridges:
-            v1_val = isvalid(v1)
-            v2_val = isvalid(v2)
-            if v2_val:
-                v1, v2 = v2, v1
-                v1_val, v2_val = v2_val, v1_val
-            if v1_val and not v2_val:
-                # v1 inside domain but not v2 - move v2 closer
-                v1x = new_vertices[v1][0]
-                v1y = new_vertices[v1][1]
-                v2x = new_vertices[v2][0]
-                v2y = new_vertices[v2][1]
-                # TODO: fix this to actually account for the x coordinate at intersection
-                ymin = 2.5 + 3*np.sin(2*np.pi*v2x/26)
-                if v2y > 10.5:
-                    scale_over = (v2y - v1y) / (10.5 - v1y)
-                    asdf=1
-                elif v2y < ymin:
-                    scale_over = (v2y - v1y) / (ymin - v1y)
-                    asdf = 1
 
 
+        # if no infinite vertices, we're now done
+        if all(v >= 0 for v in vertices):
+            # finite region
+            new_regions.append(vertices)
+            continue
 
+        # otherwise, continue to dealing with infinite vertices
         for p2, v1, v2 in ridges:
             if v2 < 0:
                 v1, v2 = v2, v1
@@ -163,7 +142,8 @@ def voronoi_finite_polygons_2d(vor, radius=None):
                 dist = (10.5 - vor.vertices[v2, 1])/direction[1]
             # if down, it's the sin wave (linearize for simplicity)
             elif direction[1] < 0:
-                dist = (0 - vor.vertices[v2, 1])/direction[1]
+                #dist = (0 - vor.vertices[v2, 1])/direction[1]
+                pass
 
             far_point = vor.vertices[v2] + direction * dist
 
@@ -201,6 +181,12 @@ def voronoi_plot(s, pause=False):
     for region in regions:
         polygon = vertices[region]
         plt.fill(*zip(*polygon), alpha=0.4)
+    # plot an extra polygon to cover up the below area
+    xv = np.linspace(26, -26, 200)
+    yv = 2.5 + 3*np.sin(2*np.pi*xv/26)
+    xv = np.concatenate([xv, np.asarray([-26, 26])])
+    yv = np.concatenate([yv, np.asarray([-5, -5])])
+    plt.fill(xv, yv, 'w')
     plt.gca().set_ylim([-1, 11])
     plt.gca().set_xlim([-13, 13])
     plt.gca().set_aspect('equal')
