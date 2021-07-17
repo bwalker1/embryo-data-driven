@@ -367,15 +367,15 @@ if __name__=="__main__":
     plt.figure(figsize=(15, 3))
     #simple_plot(s, gene_color=True, pause=True, periodic=True)
     s.sem_simulation(nsteps=100, dt=dt)
-    voronoi_plot(s, pause=False)
-    exit(0)
+    #simple_plot(s, gene_color=True, pause=False, periodic=True)
+    #voronoi_plot(s, pause=False)
 
     for i in range(200):
         print("Iteration %d\tNumber of active cells: %d"%(i, len(s.vact)))
         for ii in range(20):
-            s.cell_birth_death(dt=100 * dt)
+            #s.cell_birth_death(dt=100 * dt)
             s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=dt)
-        simple_plot(s, gene_color=True, pause=True, periodic=True)
-        #voronoi_plot(s, pause=True)
+        #simple_plot(s, gene_color=True, pause=True, periodic=True)
+        voronoi_plot(s, pause=True)
     #simple_plot(s, gene_color=True, periodic=False)

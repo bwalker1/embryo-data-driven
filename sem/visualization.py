@@ -5,8 +5,8 @@ import seaborn as sns
 from mayavi import mlab
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
 import matplotlib as mpl
+import matplotlib.cm as cm
 from matplotlib.animation import FuncAnimation, MovieWriter
 
 def simple_plot(s, pause=False, gene_color=False, periodic=False):
@@ -30,7 +30,7 @@ def simple_plot(s, pause=False, gene_color=False, periodic=False):
         # a.set_aspect('equal')
         # plt.colorbar(a)
         plt.gca().set_ylim([0, 10])
-        plt.gca().set_xlim([-26, 26])
+        plt.gca().set_xlim([-13, 13])
         plt.gca().set_aspect('equal')
     else:
         raise NotImplementedError
@@ -77,6 +77,8 @@ def voronoi_finite_polygons_2d(vor, radius=None):
         end.
     """
 
+    pointlist = []
+
     if vor.points.shape[1] != 2:
         raise ValueError("Requires 2D input")
 
@@ -104,6 +106,7 @@ def voronoi_finite_polygons_2d(vor, radius=None):
 
     # Reconstruct infinite regions
     for p1, region in enumerate(vor.point_region):
+        pointlist.append(p1)
         vertices = vor.regions[region]
 
         # reconstruct a non-finite region
@@ -137,13 +140,6 @@ def voronoi_finite_polygons_2d(vor, radius=None):
 
             # check for intersection with y boundary
             dist = radius
-            # if we're going up, boundary is y=10.5
-            if direction[1] > 0:
-                dist = (10.5 - vor.vertices[v2, 1])/direction[1]
-            # if down, it's the sin wave (linearize for simplicity)
-            elif direction[1] < 0:
-                #dist = (0 - vor.vertices[v2, 1])/direction[1]
-                pass
 
             far_point = vor.vertices[v2] + direction * dist
 
@@ -159,9 +155,9 @@ def voronoi_finite_polygons_2d(vor, radius=None):
         # finish
         new_regions.append(new_region.tolist())
 
-    return new_regions, np.asarray(new_vertices)
+    return np.asarray(pointlist, dtype=np.int32), new_regions, np.asarray(new_vertices)
 
-def voronoi_plot(s, pause=False):
+def voronoi_plot(s, pause=False, gene_color=False):
     # copy for periodicity
     xv = s.xe[s.eact, 0]
     yv = s.xe[s.eact, 1]
@@ -169,25 +165,39 @@ def voronoi_plot(s, pause=False):
     pts2 = np.stack([xv-26, yv], axis=1)
     pts = np.concatenate([pts1, pts2])
 
-    vor = Voronoi(pts)
-    regions, vertices = voronoi_finite_polygons_2d(vor)
 
-    # post-process to extract 1 full period and draw boundary
+
+    vor = Voronoi(pts)
+    pointlist, regions, vertices = voronoi_finite_polygons_2d(vor)
+
+    # get information necessary for gene coloring
+    cc = s.cfeat['SPINK5'][s.ecid][s.eact]
+    # doubled for periodicity
+    cc = np.concatenate([cc, cc])
+    # map cell ID to the corresponding voronoi regions
+    cc = cc[pointlist]
 
     plt.clf()
     ax = plt.gca()
-    #voronoi_plot_2d(vor, ax=ax)
 
-    for region in regions:
+    if True:   # if gene_color
+        norm = mpl.colors.Normalize(vmin=0, vmax=1, clip=True)
+        map = cm.ScalarMappable(norm=norm, cmap=sns.color_palette("vlag", as_cmap=True))
+
+    for i, region in enumerate(regions):
         polygon = vertices[region]
-        plt.fill(*zip(*polygon), alpha=0.4)
+        plt.fill(*zip(*polygon), color=map.to_rgba(cc[i]), alpha=0.4)
+        #plt.fill(*zip(*polygon))
     # plot an extra polygon to cover up the below area
     xv = np.linspace(26, -26, 200)
     yv = 2.5 + 3*np.sin(2*np.pi*xv/26)
     xv = np.concatenate([xv, np.asarray([-26, 26])])
     yv = np.concatenate([yv, np.asarray([-5, -5])])
     plt.fill(xv, yv, 'w')
-    plt.gca().set_ylim([-1, 11])
+    xv = [-26, 26, 26, -26]
+    yv = [10.5, 10.5, 15, 15]
+    plt.fill(xv, yv, 'w')
+    plt.gca().set_ylim([-2, 12])
     plt.gca().set_xlim([-13, 13])
     plt.gca().set_aspect('equal')
     if pause:
