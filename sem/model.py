@@ -58,6 +58,8 @@ class Model:
         self.dot_P1 = {}
         self.dot_b = {}
         self.istep = 0
+        # cell IDs that are not currently in use
+        self.free_ids = set()
 
     def sem_simulation(self, nsteps=1000, cav=0, dt=0.01):
         if self.d != 2:
@@ -120,17 +122,68 @@ class Model:
         xc = self.get_cell_center()
         xr = np.random.rand(len(xc))
         for ind, (i, v) in enumerate(xc.items()):
-            y = xc[i][1]
+            y = v[1]
             if xr[ind] < death_prob(y, dt):
                 # kill cell i by deactivating its elements
                 self.eact[self.ecid == i] = False
                 self.ecid[self.ecid == i] = -1
+                self.free_ids.add(i)
         self.d_ecid = cuda.to_device(self.ecid)
         self.update_ceid()
 
         # TODO: process cell division (birth)
-        
+        def birth_prob(x, y, dt, nact, ne):
+            """
+            Function determining probability a given cell divides
+            :param x: x coordinate of cell
+            :param y: y coordinate of cell
+            :param dt: timestep of simulation
+            :param nact: number of active cells
+            :param ne: number of total elements (possible cells)
+            :return: probability of cell division during timestep
+            """
+            dist_from_bot = y - (3 + 3*np.sin(2*np.pi*x/26))
 
+            # controls rate of division (bigger = slower division)
+            alpha = 2
+            if nact > 208:
+                # scale down rate as more cells appear
+                num_scale = (1/(nact - ne))**2
+            else:
+                num_scale = 1
+
+            scale = num_scale*(2-y)/2
+            if scale < 0:
+                scale = 0
+            return scale*dt/alpha
+
+        # go through all active cells and check for division
+        xc = self.get_cell_center()
+        nc = len(xc)
+        for ind, (i, v) in enumerate(xc.items()):
+            y = v[1]
+            x = v[0]
+            p = birth_prob(x, y, dt, nc, self.ne)
+            if p > 0 and np.random.rand() < p and nc < self.ne-1:
+                # this cell divides
+                # get an element for the new cell
+                new_element = np.nonzero(self.ecid==-1)[0][0]
+                # get an id for the new cell
+                new_id = self.free_ids.pop()
+                # record the element membership
+                self.ecid[new_element] = new_id
+                # put the element near the parent
+                new_pos = v + np.random.normal(0.0, 0.5, size=v.shape)
+                self.xe[new_element, :] = new_pos
+                # set gene expression
+                for k in self.cfeat.keys():
+                    self.cfeat[k][new_id] = self.cfeat[k][i]
+                # activate element
+                self.eact[new_element] = True
+                nc += 1
+
+        self.d_ecid = cuda.to_device(self.ecid)
+        self.update_ceid()
         self.update_vact()
 
     def update_vact(self):
@@ -284,6 +337,10 @@ class Model:
         self.eact[ngp:] = False
         self.update_vact()
 
+        # record all of the ids that are not initially in use
+        for i in range(ngp, self.ne):
+            self.free_ids.add(i)
+
 
 
 
@@ -313,9 +370,9 @@ if __name__=="__main__":
     for i in range(200):
         print("Iteration %d\tNumber of active cells: %d"%(i, len(s.vact)))
         for ii in range(20):
+            s.cell_birth_death(dt=100 * dt)
             s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=dt)
-            s.cell_birth_death(dt=100*dt)
         simple_plot(s, gene_color=True, pause=True, periodic=True)
         #voronoi_plot(s, pause=True)
     #simple_plot(s, gene_color=True, periodic=False)
