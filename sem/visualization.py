@@ -171,7 +171,12 @@ def voronoi_plot(s, pause=False, gene_color=False):
     pointlist, regions, vertices = voronoi_finite_polygons_2d(vor)
 
     # get information necessary for gene coloring
-    cc = s.cfeat['SPINK5'][s.ecid][s.eact]
+    # TODO: set this up with however I end up handling gene type
+    color_gene = "ASS1"
+    cc = s.type_expr.loc[s.ctyp[s.ecid[s.eact]], color_gene]
+    # old:
+    # cc = s.cfeat['SPINK5'][s.ecid][s.eact]
+
     # doubled for periodicity
     cc = np.concatenate([cc, cc])
     # map cell ID to the corresponding voronoi regions

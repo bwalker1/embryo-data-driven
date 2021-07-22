@@ -46,15 +46,16 @@ class Model:
             ymin = 3 + 3*np.sin(2*np.pi*xv/26)
             self.xe[:, 1] = np.random.uniform(ymin, 10)
         self.ecid[:] = np.array(list(range(self.ne)))
-        self.etyp[:] = 0
+        #self.etyp[:] = 0
         self.d_ecid = cuda.to_device(self.ecid)
-        self.d_etyp = cuda.to_device(self.etyp)
+        #self.d_etyp = cuda.to_device(self.etyp)
         self.d_xe = cuda.to_device(self.xe)
         self.d_xe_F = cuda.to_device(self.xe)
         self.d_eact = cuda.to_device(self.eact)
         self.ceid = {}
         self.update_ceid()
         self.cfeat = {}
+        self.ctyp = np.zeros(shape=self.ne)
         self.dot_P1 = {}
         self.dot_b = {}
         self.istep = 0
@@ -310,17 +311,46 @@ class Model:
         self.d_ecid = cuda.to_device(self.ecid)
         self.update_ceid()
 
-    def load_from_data(self, grid, expr, gene_name):
+    def load_from_data(self, expr_grid, expr, gene_name):
         """
         test function to set elements equal to reference ST data
         :return:
         """
-        if not self.xe.shape[0] >= grid.shape[0]:
+        if not self.xe.shape[0] >= expr_grid.shape[0]:
             raise ValueError
 
-        ngp = grid.shape[0]
+        # TODO: add configuration of where to load from
+        genes = list(pd.read_csv('../data_preprocessing/processed_genes.csv', header=None).squeeze())
+        type_expr = pd.read_csv('../data_preprocessing/mean_expr.csv', header=None)
+        type_expr.columns = genes
 
-        self.xe[:ngp, :] = grid
+        ntypes = type_expr.shape[0]
+
+        self.expr_grid = np.loadtxt("../input_data/SpatialRef/pts.txt")
+        expr_data = pd.read_csv("../input_data/SpatialRef/spatial_expr_normalized.csv", index_col=0)
+
+        # Get list of genes that are in both datasets
+        gene_set = set(genes) & set(list(expr_data))
+
+        self.expr_data = expr_data.loc[:, gene_set]
+        self.type_expr = type_expr.loc[:, gene_set]
+
+        # TODO: load cell type transition rates
+        # for now just make something here
+        transition = np.zeros(shape=[ntypes, ntypes])
+        transition[0, 1] = 1
+        transition[1, 3] = 1
+        transition[3, 2] = 1
+        transition[3, 4] = 1
+        transition[3, 5] = 1
+        transition[2, 5] = 1
+        transition[4, 5] = 1
+        transition[5, 6] = 1
+
+
+        ngp = self.expr_grid.shape[0]
+
+        self.xe[:ngp, :] = self.expr_grid
         self.d_xe = cuda.to_device(self.xe)
         self.d_xe_F = cuda.to_device(self.xe)
 
@@ -332,6 +362,14 @@ class Model:
         self.cfeat[gene_name] = np.empty(shape=self.xe.shape[0])
         self.cfeat[gene_name][:ngp] = expr
 
+        # Go through each cell and decide what type it should start as
+        start_gene = "ASS1"
+        start_expr_by_type = np.asarray(self.type_expr.loc[:, start_gene])
+        for i in range(ngp):
+            spa_expr = self.expr_data.loc[i, start_gene]
+            type_dist = np.abs(start_expr_by_type-spa_expr)
+            self.ctyp[i] = np.argmin(type_dist)
+
         # Mark the remaining elements (not covered by initial data) as inactive, and rest as active
         self.eact[:ngp] = True
         self.eact[ngp:] = False
@@ -340,7 +378,6 @@ class Model:
         # record all of the ids that are not initially in use
         for i in range(ngp, self.ne):
             self.free_ids.add(i)
-
 
 
 
@@ -368,12 +405,12 @@ if __name__=="__main__":
     #simple_plot(s, gene_color=True, pause=True, periodic=True)
     s.sem_simulation(nsteps=100, dt=dt)
     #simple_plot(s, gene_color=True, pause=False, periodic=True)
-    #voronoi_plot(s, pause=False)
+    voronoi_plot(s, pause=False)
 
     for i in range(200):
         print("Iteration %d\tNumber of active cells: %d"%(i, len(s.vact)))
         for ii in range(20):
-            #s.cell_birth_death(dt=100 * dt)
+            s.cell_birth_death(dt=100 * dt)
             s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=dt)
         #simple_plot(s, gene_color=True, pause=True, periodic=True)
