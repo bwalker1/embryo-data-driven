@@ -16,6 +16,8 @@ from matplotlib import cm
 import matplotlib as mpl
 from matplotlib.animation import FuncAnimation, MovieWriter
 
+import cProfile, pstats
+
 from dot.dot import gaussian_diffusion, sinkhorn_knopp, sinkhorn_stabilized, sinkhorn_epsilon_scaling
 
 from visualization import *
@@ -55,7 +57,7 @@ class Model:
         self.ceid = {}
         self.update_ceid()
         self.cfeat = {}
-        self.ctyp = np.zeros(shape=self.ne)
+        self.ctyp = np.zeros(shape=self.ne, dtype=np.int32)
         self.dot_P1 = {}
         self.dot_b = {}
         self.istep = 0
@@ -105,10 +107,10 @@ class Model:
         :return:
         """
 
-        def death_prob(y, dt):
+        def death_prob(k, dt):
             """
             Function determining rate of cell death for a cell at height y
-            :param y: vertical coordinate of cell
+            :param k: cell type index
             :param dt: timestep of simulation
             :return: probability of cell death in current timestep
             """
@@ -117,14 +119,14 @@ class Model:
             # mean lifetime of cell
             alpha = 20
             # TODO: determine dependence on height (or make it on cell cycle?)
-            scale = (y/10)**2
+            scale = self.death_rate_by_type[k]
             return scale*dt/alpha
 
         xc = self.get_cell_center()
         xr = np.random.rand(len(xc))
         for ind, (i, v) in enumerate(xc.items()):
             y = v[1]
-            if xr[ind] < death_prob(y, dt):
+            if xr[ind] < death_prob(self.ctyp[i], dt):
                 # kill cell i by deactivating its elements
                 self.eact[self.ecid == i] = False
                 self.ecid[self.ecid == i] = -1
@@ -133,17 +135,15 @@ class Model:
         self.update_ceid()
 
         # TODO: process cell division (birth)
-        def birth_prob(x, y, dt, nact, ne):
+        def birth_prob(k, dt, nact, ne):
             """
             Function determining probability a given cell divides
-            :param x: x coordinate of cell
-            :param y: y coordinate of cell
+            :param k: index of type of cell
             :param dt: timestep of simulation
             :param nact: number of active cells
             :param ne: number of total elements (possible cells)
             :return: probability of cell division during timestep
             """
-            dist_from_bot = y - (3 + 3*np.sin(2*np.pi*x/26))
 
             # controls rate of division (bigger = slower division)
             alpha = 2
@@ -153,7 +153,7 @@ class Model:
             else:
                 num_scale = 1
 
-            scale = num_scale*(2-y)/2
+            scale = num_scale*self.birth_rate_by_type[k]
             if scale < 0:
                 scale = 0
             return scale*dt/alpha
@@ -162,10 +162,14 @@ class Model:
         xc = self.get_cell_center()
         nc = len(xc)
         for ind, (i, v) in enumerate(xc.items()):
+            # TODO: work out dependence of division on cell type
+            if nc >= self.ne-1:
+                # out of new elements to divide with
+                break
             y = v[1]
             x = v[0]
-            p = birth_prob(x, y, dt, nc, self.ne)
-            if p > 0 and np.random.rand() < p and nc < self.ne-1:
+            p = birth_prob(self.ctyp[i], dt, nc, self.ne)
+            if p > 0 and np.random.rand() < p:
                 # this cell divides
                 # get an element for the new cell
                 new_element = np.nonzero(self.ecid==-1)[0][0]
@@ -177,8 +181,10 @@ class Model:
                 new_pos = v + np.random.normal(0.0, 0.5, size=v.shape)
                 self.xe[new_element, :] = new_pos
                 # set gene expression
-                for k in self.cfeat.keys():
-                    self.cfeat[k][new_id] = self.cfeat[k][i]
+                #for k in self.cfeat.keys():
+                #    self.cfeat[k][new_id] = self.cfeat[k][i]
+                # set cell type
+                self.ctyp[new_id] = self.ctyp[i]
                 # activate element
                 self.eact[new_element] = True
                 nc += 1
@@ -191,6 +197,28 @@ class Model:
         self.vact = np.nonzero(self.eact)[0].astype(np.int32)
         self.d_eact = cuda.to_device(self.eact)
         self.d_vact = cuda.to_device(self.vact)
+
+
+    def cell_transition(self, dt):
+        """
+        Process transitions between cell types over a timestep dt
+        :return:
+        """
+        # TODO: this factor controls the overall rate of transitions - sort that out
+        alpha = 0.01
+
+        # TODO: this is not the right way to do Markov transition matrices from rates
+        A = alpha * dt * self.transition_matrix
+        rowsum = 1-np.sum(A, axis=1)
+        # failsafe cause of the above bad math
+        if np.any(rowsum < 0):
+            raise RuntimeError
+        A = np.diag(rowsum) + A
+        for k in self.ceid.keys():
+            cur_type = self.ctyp[k]
+            # TODO: pretty sure the transition matrix is also transposed from convention
+            new_type = np.random.choice(a=self.ntypes, p=A[cur_type, :])
+            self.ctyp[k] = new_type
 
 
     def split_cell_elements(self):
@@ -287,7 +315,8 @@ class Model:
         cids = []
         nc = np.max(self.ecid)+1
         for k, v in xc.items():
-            peaks.append(self.cfeat[gene][k])
+            # Get the expression for cell k
+            peaks.append(self.type_expr.loc[self.ctyp[k], gene])
             pts.append(xc[k])
             cids.append(k)
             sigmas.append(1.0)
@@ -311,13 +340,11 @@ class Model:
         self.d_ecid = cuda.to_device(self.ecid)
         self.update_ceid()
 
-    def load_from_data(self, expr_grid, expr, gene_name):
+    def load_from_data(self):
         """
-        test function to set elements equal to reference ST data
+        Function to load ST data into model
         :return:
         """
-        if not self.xe.shape[0] >= expr_grid.shape[0]:
-            raise ValueError
 
         # TODO: add configuration of where to load from
         genes = list(pd.read_csv('../data_preprocessing/processed_genes.csv', header=None).squeeze())
@@ -325,9 +352,10 @@ class Model:
         type_expr.columns = genes
 
         ntypes = type_expr.shape[0]
+        self.ntypes = ntypes
 
         self.expr_grid = np.loadtxt("../input_data/SpatialRef/pts.txt")
-        expr_data = pd.read_csv("../input_data/SpatialRef/spatial_expr_normalized.csv", index_col=0)
+        expr_data = pd.read_csv("../input_data/SpatialRef/spatial_expr.csv", index_col=0)
 
         # Get list of genes that are in both datasets
         gene_set = set(genes) & set(list(expr_data))
@@ -346,7 +374,11 @@ class Model:
         transition[2, 5] = 1
         transition[4, 5] = 1
         transition[5, 6] = 1
+        self.transition_matrix = transition
 
+        # Control differential rates of cell division and death by type
+        self.birth_rate_by_type = np.array([1, 0.15, 0.0, 0, 0, 0, 0])
+        self.death_rate_by_type = np.array([0.1, 0.1, 0.1, 0.1, 0.3, 0.5, 1])
 
         ngp = self.expr_grid.shape[0]
 
@@ -359,16 +391,16 @@ class Model:
         self.d_ecid = cuda.to_device(self.ecid)
         self.update_ceid()
 
-        self.cfeat[gene_name] = np.empty(shape=self.xe.shape[0])
-        self.cfeat[gene_name][:ngp] = expr
-
         # Go through each cell and decide what type it should start as
-        start_gene = "ASS1"
+        start_gene = "SPINK5"
         start_expr_by_type = np.asarray(self.type_expr.loc[:, start_gene])
         for i in range(ngp):
             spa_expr = self.expr_data.loc[i, start_gene]
             type_dist = np.abs(start_expr_by_type-spa_expr)
             self.ctyp[i] = np.argmin(type_dist)
+            # DEBUG: start all out at 0
+            # TODO: decide how to handle all this
+            self.ctyp[i] = 0
 
         # Mark the remaining elements (not covered by initial data) as inactive, and rest as active
         self.eact[:ngp] = True
@@ -399,20 +431,31 @@ if __name__=="__main__":
     s.dot_initialize(grid, data_spink5, "SPINK5", grid, device=device)
 
     # set initial SEM to match the reference data exactly
-    s.load_from_data(grid, spink5, "SPINK5")
+    s.load_from_data()
 
     plt.figure(figsize=(15, 3))
+    #voronoi_plot(s, pause=False, gene_color=False)
     #simple_plot(s, gene_color=True, pause=True, periodic=True)
     s.sem_simulation(nsteps=100, dt=dt)
+    #s.cell_transition(dt=100*dt)
     #simple_plot(s, gene_color=True, pause=False, periodic=True)
-    voronoi_plot(s, pause=False)
-
-    for i in range(200):
-        print("Iteration %d\tNumber of active cells: %d"%(i, len(s.vact)))
+    #voronoi_plot(s, pause=False, gene_color=False)
+    #exit(0)
+    pr = cProfile.Profile()
+    pr.enable()
+    for i in range(5):
+        print("Iteration %3d\tNumber of active cells: %d"%(i, len(s.vact)), end='\n')
         for ii in range(20):
-            s.cell_birth_death(dt=100 * dt)
-            s.dot_simulation("SPINK5")
+            #s.cell_transition(dt=100*dt)
+            #s.cell_birth_death(dt=100 * dt)
+            #s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=dt)
         #simple_plot(s, gene_color=True, pause=True, periodic=True)
-        voronoi_plot(s, pause=True)
+        #voronoi_plot(s, pause=True, gene_color=False)
     #simple_plot(s, gene_color=True, periodic=False)
+    pr.disable()
+    ps = pstats.Stats(pr).sort_stats('tottime')
+    ps.print_stats(2)
+    # save output for comparison
+    np.save('semtest/testcomp.npy', s.xe)
+    voronoi_plot(s, pause=False, gene_color=False)

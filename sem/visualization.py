@@ -170,24 +170,31 @@ def voronoi_plot(s, pause=False, gene_color=False):
     vor = Voronoi(pts)
     pointlist, regions, vertices = voronoi_finite_polygons_2d(vor)
 
-    # get information necessary for gene coloring
-    # TODO: set this up with however I end up handling gene type
-    color_gene = "ASS1"
-    cc = s.type_expr.loc[s.ctyp[s.ecid[s.eact]], color_gene]
-    # old:
-    # cc = s.cfeat['SPINK5'][s.ecid][s.eact]
 
-    # doubled for periodicity
-    cc = np.concatenate([cc, cc])
-    # map cell ID to the corresponding voronoi regions
-    cc = cc[pointlist]
 
     plt.clf()
     ax = plt.gca()
 
-    if True:   # if gene_color
+    if gene_color is not False:
+        if gene_color not in list(s.type_expr):
+            raise ValueError
+        # get information necessary for gene coloring
+        # TODO: set this up with however I end up handling gene type
+        cc = s.type_expr.loc[s.ctyp[s.ecid[s.eact]], gene_color]
+        # old:
+        # cc = s.cfeat['SPINK5'][s.ecid][s.eact]
+
         norm = mpl.colors.Normalize(vmin=0, vmax=1, clip=True)
         map = cm.ScalarMappable(norm=norm, cmap=sns.color_palette("vlag", as_cmap=True))
+    else:
+        # color based on cell type
+        cc = s.ctyp[s.ecid[s.eact]]
+        norm = mpl.colors.Normalize(vmin=0, vmax=10, clip=True)
+        map = cm.ScalarMappable(norm=norm, cmap="tab10")
+    # doubled for periodicity
+    cc = np.concatenate([cc, cc])
+    # map cell ID to the corresponding voronoi regions
+    cc = cc[pointlist]
 
     for i, region in enumerate(regions):
         polygon = vertices[region]
@@ -205,6 +212,7 @@ def voronoi_plot(s, pause=False, gene_color=False):
     plt.gca().set_ylim([-2, 12])
     plt.gca().set_xlim([-13, 13])
     plt.gca().set_aspect('equal')
+    plt.colorbar(map)
     if pause:
         plt.pause(0.01)
     else:
