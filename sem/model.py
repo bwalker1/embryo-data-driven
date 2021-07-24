@@ -3,6 +3,7 @@ import numba
 import torch
 import pickle
 from numba import cuda
+from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_normal_float32
 import numpy as np
 import math
 import pandas as pd
@@ -64,24 +65,33 @@ class Model:
         # cell IDs that are not currently in use
         self.free_ids = set()
 
-    def sem_simulation(self, nsteps=1000, cav=0, dt=0.01):
+        # set up GPU RNG
+        if self.ne > 1024:
+            raise RuntimeError
+        self.threads_per_block = self.ne
+        # TODO: might be bad if this is more than 1
+        self.blocks_per_grid = 1
+        self.rng_states = create_xoroshiro128p_states(self.threads_per_block * self.blocks_per_grid, seed=1)
+
+    def sem_simulation(self, nsteps=1000, dt=0.01, division=True, transition=True, dot_gene=None):
         if self.d != 2:
             raise NotImplementedError
         self.d_xe = cuda.to_device(self.xe)
         self.d_xe_F = cuda.to_device(self.xe)
-        self.d_xe_rand = cuda.to_device(np.random.normal(0, 1, self.xe.shape))
-        threads_per_block = 32
-        blocks_per_grid = 64
-        nc = np.max(self.ecid) + 1
-        for i in range(nsteps):
-            #print(i)
-            self.d_xe_rand = cuda.to_device(np.random.normal(0, 1, self.xe.shape))
-            cuda.synchronize()
-            move_point_2[blocks_per_grid, threads_per_block](self.d_xe, self.d_xe_F, self.d_xe_rand, self.d_ecid, self.d_vact, 0.5, 1.25, dt)
-            cuda.synchronize()
-            self.d_xe[:, :] = self.d_xe_F[:, :]
-            cuda.synchronize()
+        cuda.synchronize()
+        nact = len(self.vact)
+        move_point_2[self.blocks_per_grid, nact](self.d_xe, self.d_xe_F, self.rng_states, self.d_ecid,
+                                                                   self.d_vact, 0.5, 1.25, dt, nsteps)
+        if division:
+            self.cell_birth_death(nsteps*dt)
+        if transition:
+            self.cell_transition(nsteps*dt)
+        if dot_gene is not None:
+            self.dot_simulation_compute_gradient(dot_gene)
+        cuda.synchronize()
         self.d_xe.copy_to_host(self.xe)
+        if dot_gene is not None:
+            self.dot_simulation_apply_gradient()
 
     def cell_division(self, cid, type = 1):
         """Divide cell of cid into two.
@@ -306,28 +316,31 @@ class Model:
 
         return tmp_grad.cpu().numpy()
 
-    def dot_simulation(self, gene):
+    def dot_simulation_compute_gradient(self, gene):
         xc = self.get_cell_center()
         #ctyp = self.cfeat['cell_type']
         pts = []
         peaks = []
         sigmas = []
-        cids = []
+        self.cids = []
         nc = np.max(self.ecid)+1
         for k, v in xc.items():
             # Get the expression for cell k
             peaks.append(self.type_expr.loc[self.ctyp[k], gene])
             pts.append(xc[k])
-            cids.append(k)
+            self.cids.append(k)
             sigmas.append(1.0)
         pts = np.array(pts, float)
         peaks = np.array(peaks, float)
         sigmas = np.array(sigmas, float)
-        pts_grad = self.dot_get_gradient(pts, gene, peaks=peaks, sigmas=sigmas, device=device)
-        for icell in range(len(cids)):
-            cid = cids[icell]
+        self.pts_grad = self.dot_get_gradient(pts, gene, peaks=peaks, sigmas=sigmas, device=device)
+        return
+
+    def dot_simulation_apply_gradient(self):
+        for icell in range(len(self.cids)):
+            cid = self.cids[icell]
             ceid = self.ceid[cid]
-            self.xe[ceid] -= pts_grad[icell, :].reshape(1, -1)
+            self.xe[ceid] -= self.pts_grad[icell, :].reshape(1, -1)
         self.d_xe = cuda.to_device(self.xe)
 
     def save_pos(self, fn):
@@ -366,7 +379,7 @@ class Model:
         # TODO: load cell type transition rates
         # for now just make something here
         transition = np.zeros(shape=[ntypes, ntypes])
-        transition[0, 1] = 1
+        transition[0, 1] = 3
         transition[1, 3] = 1
         transition[3, 2] = 1
         transition[3, 4] = 1
@@ -433,7 +446,7 @@ if __name__=="__main__":
     # set initial SEM to match the reference data exactly
     s.load_from_data()
 
-    plt.figure(figsize=(15, 3))
+    #plt.figure(figsize=(15, 3))
     #voronoi_plot(s, pause=False, gene_color=False)
     #simple_plot(s, gene_color=True, pause=True, periodic=True)
     s.sem_simulation(nsteps=100, dt=dt)
@@ -443,19 +456,15 @@ if __name__=="__main__":
     #exit(0)
     pr = cProfile.Profile()
     pr.enable()
-    for i in range(5):
+    for i in range(100):
         print("Iteration %3d\tNumber of active cells: %d"%(i, len(s.vact)), end='\n')
         for ii in range(20):
-            #s.cell_transition(dt=100*dt)
-            #s.cell_birth_death(dt=100 * dt)
             #s.dot_simulation("SPINK5")
-            s.sem_simulation(nsteps=100, dt=dt)
+            s.sem_simulation(nsteps=100, dt=dt, division=True, transition=True, dot_gene="SPINK5")
         #simple_plot(s, gene_color=True, pause=True, periodic=True)
-        #voronoi_plot(s, pause=True, gene_color=False)
+        #voronoi_plot(s, pause=False, gene_color=False)
     #simple_plot(s, gene_color=True, periodic=False)
     pr.disable()
     ps = pstats.Stats(pr).sort_stats('tottime')
-    ps.print_stats(2)
-    # save output for comparison
-    np.save('semtest/testcomp.npy', s.xe)
+    ps.print_stats(10)
     voronoi_plot(s, pause=False, gene_color=False)

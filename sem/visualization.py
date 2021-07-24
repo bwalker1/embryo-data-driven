@@ -169,11 +169,7 @@ def voronoi_plot(s, pause=False, gene_color=False):
 
     vor = Voronoi(pts)
     pointlist, regions, vertices = voronoi_finite_polygons_2d(vor)
-
-
-
-    plt.clf()
-    ax = plt.gca()
+    fig, ax = plt.subplots(1, 2, gridspec_kw={'width_ratios': [1, 4]}, figsize=(15, 5))
 
     if gene_color is not False:
         if gene_color not in list(s.type_expr):
@@ -198,21 +194,29 @@ def voronoi_plot(s, pause=False, gene_color=False):
 
     for i, region in enumerate(regions):
         polygon = vertices[region]
-        plt.fill(*zip(*polygon), color=map.to_rgba(cc[i]), alpha=0.4)
+        ax[1].fill(*zip(*polygon), color=map.to_rgba(cc[i]), alpha=0.4)
         #plt.fill(*zip(*polygon))
     # plot an extra polygon to cover up the below area
     xv = np.linspace(26, -26, 200)
     yv = 2.5 + 3*np.sin(2*np.pi*xv/26)
     xv = np.concatenate([xv, np.asarray([-26, 26])])
     yv = np.concatenate([yv, np.asarray([-5, -5])])
-    plt.fill(xv, yv, 'w')
+    ax[1].fill(xv, yv, 'w')
     xv = [-26, 26, 26, -26]
     yv = [10.5, 10.5, 15, 15]
-    plt.fill(xv, yv, 'w')
-    plt.gca().set_ylim([-2, 12])
-    plt.gca().set_xlim([-13, 13])
-    plt.gca().set_aspect('equal')
-    plt.colorbar(map)
+    ax[1].fill(xv, yv, 'w')
+    ax[1].set_ylim([-2, 12])
+    ax[1].set_xlim([-13, 13])
+    ax[1].set_aspect('equal')
+    type_name = ["BAS-1", "BAS-2", "BAS-3", "BAS-4", "SPN-1", "SPN-2", "GRN"]
+    ff = plt.FuncFormatter(lambda val, _: type_name[val])
+    #plt.colorbar(map, cax=ax[1], ticks=[0,1,2,3,4,5,6], format=ff)
+
+
+    # plot pie chart of type distribution
+    counts = np.bincount(cc, minlength=7)
+    ax[0].pie(counts, labels=type_name, colors=(map.to_rgba(i) for i in range(7)))
+
     if pause:
         plt.pause(0.01)
     else:
