@@ -373,6 +373,10 @@ class Model:
         # Get list of genes that are in both datasets
         gene_set = set(genes) & set(list(expr_data))
 
+        print("Loaded consistent genes from SC + ST data:")
+        for v in gene_set:
+            print("\t", v)
+
         self.expr_data = expr_data.loc[:, gene_set]
         self.type_expr = type_expr.loc[:, gene_set]
 
@@ -446,25 +450,21 @@ if __name__=="__main__":
     # set initial SEM to match the reference data exactly
     s.load_from_data()
 
-    #plt.figure(figsize=(15, 3))
-    #voronoi_plot(s, pause=False, gene_color=False)
-    #simple_plot(s, gene_color=True, pause=True, periodic=True)
-    s.sem_simulation(nsteps=100, dt=dt)
-    #s.cell_transition(dt=100*dt)
-    #simple_plot(s, gene_color=True, pause=False, periodic=True)
-    #voronoi_plot(s, pause=False, gene_color=False)
-    #exit(0)
+    s.sem_simulation(nsteps=1000, dt=dt, division=False, transition=False)
+
+    # profiling for debugging/optimization
     pr = cProfile.Profile()
     pr.enable()
-    for i in range(100):
+
+    # each cycle consists of cell lifecycle, OT force, and SEM force
+    cycles = 100
+    for i in range(cycles):
         print("Iteration %3d\tNumber of active cells: %d"%(i, len(s.vact)), end='\n')
         for ii in range(20):
             #s.dot_simulation("SPINK5")
             s.sem_simulation(nsteps=100, dt=dt, division=True, transition=True, dot_gene="SPINK5")
-        #simple_plot(s, gene_color=True, pause=True, periodic=True)
         #voronoi_plot(s, pause=False, gene_color=False)
-    #simple_plot(s, gene_color=True, periodic=False)
     pr.disable()
-    ps = pstats.Stats(pr).sort_stats('tottime')
+    ps = pstats.Stats(pr).sort_stats('cumtime')
     ps.print_stats(10)
     voronoi_plot(s, pause=False, gene_color=False)

@@ -9,7 +9,7 @@ import matplotlib as mpl
 import matplotlib.cm as cm
 from matplotlib.animation import FuncAnimation, MovieWriter
 
-def simple_plot(s, pause=False, gene_color=False, periodic=False):
+def simple_plot(s, pause=False, gene_color=False):
     # fig = plt.figure()
     plt.clf()
     if s.d == 3:
@@ -23,10 +23,14 @@ def simple_plot(s, pause=False, gene_color=False, periodic=False):
             cc = s.ecid[s.eact]
         xv = s.xe[s.eact, 0]
         yv = s.xe[s.eact, 1]
-        a = plt.scatter(xv, yv, c=cc, vmin=0, vmax=1, cmap=sns.color_palette("vlag", as_cmap=True))
-        if periodic:
+        # TODO: properly handle the two cases here
+        if gene_color:
+            a = plt.scatter(xv, yv, c=cc, vmin=0, vmax=1, cmap=sns.color_palette("vlag", as_cmap=True))
             a = plt.scatter(xv - 26, yv, c=cc, vmin=0, vmax=1,
                             cmap=sns.color_palette("vlag", as_cmap=True))
+        else:
+            a = plt.scatter(xv, yv, c='b')
+            a = plt.scatter(xv - 26, yv, c='b')
         # a.set_aspect('equal')
         # plt.colorbar(a)
         plt.gca().set_ylim([0, 10])
