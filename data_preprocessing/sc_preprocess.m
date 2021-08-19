@@ -10,7 +10,7 @@ processed_genes = {};
 
 for i = 1:length(genes_used)
     gene = genes_used{i};
-    %disp(gene);
+    disp(gene);
     for j = 1:length(allgenes)
         if strcmp(gene,allgenes{j})
             counts_for_gene = count_matrix(j, :);

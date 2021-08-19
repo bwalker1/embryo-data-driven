@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib as mpl
 import matplotlib.cm as cm
+import matplotlib.image as mpimg
 from matplotlib.animation import FuncAnimation, MovieWriter
 
 def simple_plot(s, pause=False, gene_color=False):
@@ -173,6 +174,7 @@ def voronoi_plot(s, pause=False, gene_color=False):
 
     vor = Voronoi(pts)
     pointlist, regions, vertices = voronoi_finite_polygons_2d(vor)
+    plt.close('all')
     fig, ax = plt.subplots(1, 2, gridspec_kw={'width_ratios': [1, 4]}, figsize=(15, 5))
 
     if gene_color is not False:
@@ -213,9 +215,6 @@ def voronoi_plot(s, pause=False, gene_color=False):
     ax[1].set_xlim([-13, 13])
     ax[1].set_aspect('equal')
     type_name = ["BAS-1", "BAS-2", "BAS-3", "BAS-4", "SPN-1", "SPN-2", "GRN"]
-    ff = plt.FuncFormatter(lambda val, _: type_name[val])
-    #plt.colorbar(map, cax=ax[1], ticks=[0,1,2,3,4,5,6], format=ff)
-
 
     # plot pie chart of type distribution
     counts = np.bincount(cc, minlength=7)
@@ -225,3 +224,45 @@ def voronoi_plot(s, pause=False, gene_color=False):
         plt.pause(0.01)
     else:
         plt.show()
+
+
+# Note: this assumes the points are on a uniformly spaced grid
+def plot_gene_profile(pts, val, ref, gene):
+    #cmap = sns.color_palette("vlag", as_cmap=True)
+    cmap = "coolwarm"
+
+    fig, ax = plt.subplots(1,2, figsize=(12, 4), dpi=300)
+    cc = val
+    # TODO: decide if/how to do normalization
+    cc = cc/np.sum(cc)
+
+    xv = pts[:, 0]
+    yv = pts[:, 1]
+
+
+    # plot the simulated gene expression data
+    a = ax[1].scatter(xv, yv, c=cc, s=135, cmap=cmap)
+    a = ax[1].scatter(xv - 26, yv, c=cc, s=135, cmap=cmap)
+    # a.set_aspect('equal')
+    # plt.colorbar(a)
+    ax[1].set_ylim([-1, 11])
+    ax[1].set_xlim([-13, 13])
+    ax[1].set_aspect('equal')
+    ax[1].set_title('simulated')
+
+    # plot the reference data
+    cc = ref
+    cc = cc / np.sum(cc)
+    a = ax[0].scatter(xv, yv, c=cc, s=135, cmap=cmap)
+    a = ax[0].scatter(xv - 26, yv, c=cc, s=135, cmap=cmap)
+    # a.set_aspect('equal')
+    # plt.colorbar(a)
+    ax[0].set_ylim([-1, 11])
+    ax[0].set_xlim([-13, 13])
+    ax[0].set_aspect('equal')
+    ax[0].set_title('reference')
+
+    fig.suptitle(gene)
+    fig.savefig("../images/%s.png"%gene)
+    #plt.show()
+    plt.close(fig)

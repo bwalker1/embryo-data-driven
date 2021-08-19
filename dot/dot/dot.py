@@ -166,14 +166,23 @@ def gaussian_diffusion(source_pts, locations, peaks, sigmas, nus, x_periodic=Fal
     d = source_pts.size(1)
     x = source_pts.unsqueeze(1).expand(n, m, d)
     y = locations.unsqueeze(0).expand(n, m, d)
-    Dx = torch.abs(x[:, :, 0] - y[:, :, 0])
-    Dx = torch.where(Dx > 13, 26 - Dx, Dx)
+    # three images to account for periodicity
+    # TODO: this is a dumb way of handling three separate images in the code
+    Dx_center = torch.abs(x[:, :, 0] - y[:, :, 0])
+    Dx_left = torch.abs(x[:, :, 0] - 26 - y[:, :, 0])
+    Dx_right = torch.abs(x[:, :, 0] + 26 - y[:, :, 0])
     Dy = x[:, :, 1] - y[:, :, 1]
-    D = torch.pow(Dx, 2) + torch.pow(Dy, 2)
+    D_center = torch.pow(Dx_center, 2) + torch.pow(Dy, 2)
+    D_left = torch.pow(Dx_left, 2) + torch.pow(Dy, 2)
+    D_right = torch.pow(Dx_right, 2) + torch.pow(Dy, 2)
     #D = torch.pow(x - y, 2)
     #D = D.sum(2)
-    D_over_sigma = D / (sigmas.view(-1,1) ** 2)
-    D_over_sigma_pow = torch.pow(D_over_sigma, nus.view(-1,1))
-    P = torch.sum( peaks.view(-1,1) * torch.exp(-D_over_sigma_pow) / (np.sqrt(2*np.pi) * sigmas.view(-1, 1)), 0 )
+    D_over_sigma_pow_center = torch.pow( D_center / (sigmas.view(-1,1) ** 2), nus.view(-1,1))
+    D_over_sigma_pow_left = torch.pow(D_left / (sigmas.view(-1, 1) ** 2), nus.view(-1, 1))
+    D_over_sigma_pow_right = torch.pow(D_right / (sigmas.view(-1, 1) ** 2), nus.view(-1, 1))
+    P_center = torch.sum( peaks.view(-1,1) * torch.exp(-D_over_sigma_pow_center) / (np.sqrt(2*np.pi) * sigmas.view(-1, 1)), 0 )
+    P_left = torch.sum( peaks.view(-1,1) * torch.exp(-D_over_sigma_pow_left) / (np.sqrt(2*np.pi) * sigmas.view(-1, 1)), 0 )
+    P_right = torch.sum( peaks.view(-1,1) * torch.exp(-D_over_sigma_pow_right) / (np.sqrt(2*np.pi) * sigmas.view(-1, 1)), 0 )
 
+    P = P_center + P_left + P_right
     return P
