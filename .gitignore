@@ -7,3 +7,4 @@ data_preprocessing/.ipynb_checkpoints/
 images/
 input_data/
 *.npy
+*.egg-info

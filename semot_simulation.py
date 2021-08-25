@@ -1,5 +1,4 @@
 import math
-import numba
 import torch
 import pickle
 from numba import cuda
@@ -9,11 +8,10 @@ from scipy.spatial import distance_matrix
 
 from mayavi import mlab
 import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
 from matplotlib import cm
 import matplotlib as mpl
 
-from dot.dot import gaussian_diffusion, sinkhorn_knopp, sinkhorn_stabilized, sinkhorn_epsilon_scaling
+from sem.dot.dot import gaussian_diffusion, sinkhorn_knopp
 
 # for testing/optimizing
 import cProfile

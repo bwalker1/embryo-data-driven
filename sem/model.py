@@ -1,28 +1,13 @@
-import math
-import numba
 import torch
-import pickle
 from numba import cuda
-from numba.cuda.random import create_xoroshiro128p_states, xoroshiro128p_normal_float32
-import numpy as np
-import math
+from numba.cuda.random import create_xoroshiro128p_states
 import pandas as pd
-from scipy.spatial import distance_matrix, Delaunay
-import seaborn as sns
-
-from mayavi import mlab
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D
-from matplotlib import cm
-import matplotlib as mpl
-from matplotlib.animation import FuncAnimation, MovieWriter
 
 import cProfile, pstats
 
-from dot.dot import gaussian_diffusion, sinkhorn_knopp, sinkhorn_stabilized, sinkhorn_epsilon_scaling
+from sem.dot.dot import gaussian_diffusion, sinkhorn_knopp
 
 from visualization import *
-from sem import *
 
 # be able to adaptively run on CPU or GPU
 try_gpu = True
@@ -585,7 +570,7 @@ if __name__=="__main__":
     pr.enable()
 
     # each cycle consists of cell lifecycle, OT force, and SEM force
-    cycles = 10
+    cycles = 1
     for i in range(cycles):
         print("Iteration %3d\tNumber of active cells: %d"%(i, len(s.vact)), end='\n')
         for ii in range(100):
