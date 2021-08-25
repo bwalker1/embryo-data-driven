@@ -7,7 +7,7 @@ import cProfile, pstats
 
 from sem.dot.dot import gaussian_diffusion, sinkhorn_knopp
 
-from visualization import *
+from .visualization import *
 
 # be able to adaptively run on CPU or GPU
 try_gpu = True
