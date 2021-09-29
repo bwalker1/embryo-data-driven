@@ -77,16 +77,14 @@ class Model:
         self.lifecycle_timescale = 1
 
         # parameter controlling strength of dot force
-        self.dot_alpha = 10
+        self.dot_alpha = 0.1
 
-    def sem_simulation(self, nsteps=1000, dt=0.01, division=True, transition=True, dot=True):
+    def sem_simulation(self, nsteps=1000, dt=0.01, division=True, transition=True, dot=None):
         self.update_etyp()
         if self.d != 2:
             raise NotImplementedError
 
-        if dot is True:
-            gene_set = self.gene_set
-        elif dot:
+        if dot is not None:
             gene_set = dot
 
         # advance cell life cycle
@@ -100,7 +98,7 @@ class Model:
         self.d_xe_F = cuda.to_device(self.xe)
         cuda.synchronize()
         nact = len(self.vact)
-        move_point_2[self.blocks_per_grid, nact](self.d_xe, self.d_xe_F, self.rng_states, self.d_etyp,self.d_vact, 0.5, 1.25, dt, nsteps)
+        #move_point_2[self.blocks_per_grid, nact](self.d_xe, self.d_xe_F, self.rng_states, self.d_etyp,self.d_vact, 0.5, 1.25, dt, nsteps)
         if dot:
             self.dot_simulation_compute_gradient(gene_set)
         cuda.synchronize()
@@ -564,6 +562,8 @@ class Model:
 
 
 if __name__=="__main__":
+    #plot_empty_grid()
+    #exit(0)
     np.random.seed(7)
     dt = 0.001
     s = Model(ne=256, d=2)
@@ -574,23 +574,27 @@ if __name__=="__main__":
 
     # set initial SEM to match the reference data exactly
     s.load_from_data()
+    #s.compute_gene_profiles()
+    #exit(0)
     #voronoi_plot(s, pause=False, gene_color=False)
     s.sem_simulation(nsteps=1000, dt=dt, division=False, transition=False, dot=False)
     #voronoi_plot(s, pause=False, gene_color=False)
 
     #s.compute_gene_profiles()
+    #exit(0)
 
     # profiling for debugging/optimization
     pr = cProfile.Profile()
     pr.enable()
 
     # each cycle consists of cell lifecycle, OT force, and SEM force
-    cycles = 10
+    cycles = 3
     for i in range(cycles):
         print("Iteration %3d\tNumber of active cells: %d"%(i, len(s.vact)), end='\n')
         for ii in range(100):
             #s.sem_simulation(nsteps=100, dt=dt, division=True, transition=True, dot=["FLG","CALML5","LOR","SPINK5", "MLANA", "STMN1"])
-            s.sem_simulation(nsteps=100, dt=dt, division=True, transition=True,dot=["LOR"])
+            s.sem_simulation(nsteps=100, dt=dt, division=False, transition=False,dot=["LOR"])
+            #simple_plot(s, pause=False, gene_color=False)
             #s.sem_simulation(nsteps=100, dt=dt, division=True, transition=True, dot=False)
         s.print_cell_type_distribution()
         #voronoi_plot(s, pause=True, gene_color=False)
@@ -598,4 +602,5 @@ if __name__=="__main__":
     ps = pstats.Stats(pr).sort_stats('tottime')
     ps.print_stats(10)
     s.compute_gene_profiles()
-    voronoi_plot(s, pause=False, gene_color=False)
+    #voronoi_plot(s, pause=False, gene_color=False)
+    simple_plot(s, pause=False, gene_color=False)

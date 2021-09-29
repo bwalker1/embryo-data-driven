@@ -35,7 +35,7 @@ def simple_plot(s, pause=False, gene_color=False):
         # a.set_aspect('equal')
         # plt.colorbar(a)
         plt.gca().set_ylim([0, 10])
-        plt.gca().set_xlim([-13, 13])
+        plt.gca().set_xlim([0, 26])
         plt.gca().set_aspect('equal')
     else:
         raise NotImplementedError
@@ -224,6 +224,22 @@ def voronoi_plot(s, pause=False, gene_color=False):
         plt.pause(0.01)
     else:
         plt.show()
+
+
+# Note: this assumes the points are on a uniformly spaced grid
+def plot_empty_grid():
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 4), dpi=300)
+
+    # plot an extra polygon to cover up the below area
+    xv = np.linspace(6.5, 19.5, 200)
+    yv = 2.5 + 3 * np.sin(2 * np.pi * xv / 26)
+    xv = np.concatenate([xv, np.asarray([19.5, 6.5, 6.5])])
+    yv = np.concatenate([yv, np.asarray([10, 10, 2.5 + 3 * np.sin(2 * np.pi * 6.5 / 26)])])
+    ax.plot(xv, yv, 'k')
+    fig.savefig("../images/empty.png")
+    #plt.show()
+    plt.close(fig)
 
 
 # Note: this assumes the points are on a uniformly spaced grid

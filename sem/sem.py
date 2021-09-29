@@ -16,6 +16,33 @@ def move_point_2(x, x_F, rng_states, etyp, vact, rm_intra, rm_inter, dt, nsteps)
         for iv in range(start, ne, stride):
             # Actual index of current element in array
             i = vact[iv]
+
+            # Reflective in y
+            # compute slope for moving particle back in at right angle
+            d = 6 * math.pi / 26 * math.cos(x_F[i, 0])
+            d2 = 1.0 / math.sqrt(1 + d * d)
+            tmp = 3 + 3 * math.sin(x_F[i, 0] * 2 * math.pi / 26)
+            if False and etyp[i] < 4:
+                # basal cell goes in basal layer
+                vmin = tmp
+                vmax = tmp + 0.75
+            else:
+                vmin = tmp + 0.75
+                vmax = 10
+            dy = vmin - x_F[i, 1]
+            if x_F[i, 1] < vmin:
+                x_F[i, 1] += dy * d2
+                x_F[i, 0] -= dy * d * d2
+            elif x_F[i, 1] > vmax:
+                x_F[i, 1] = vmax
+
+            # periodic in x
+            if x_F[i, 0] >= 26:
+                x_F[i, 0] -= 26
+            elif x_F[i, 0] < 0:
+                x_F[i, 0] += 26
+
+
             for jv in range(ne):
                 if jv == iv:
                     continue
